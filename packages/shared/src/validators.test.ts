@@ -27,6 +27,15 @@ import {
   handoverBorrowRequestSchema,
   returnBorrowRequestSchema,
   queryBorrowRequestsSchema,
+  updateUserSchema,
+  updateUserStatusSchema,
+  resetUserPasswordSchema,
+  queryUsersSchema,
+  kitItemInputSchema,
+  createKitSchema,
+  updateKitSchema,
+  updateKitStatusSchema,
+  queryKitsSchema,
 } from './validators';
 import {
   ItemType,
@@ -43,6 +52,10 @@ import {
   BorrowStatus,
   AssetCondition,
   BorrowSortField,
+  UserRole,
+  UserSortField,
+  KitStatus,
+  KitSortField,
 } from './types';
 
 describe('Shared Validators Tests', () => {
@@ -1301,5 +1314,217 @@ describe('Shared Validators Tests', () => {
       });
     });
   });
+
+  // ==========================================
+  // USER MANAGEMENT VALIDATION SUITES
+  // ==========================================
+
+  describe('User Management Validation Suites', () => {
+    describe('updateUserSchema', () => {
+      it('validates valid user update with partial fields', () => {
+        const parsed = updateUserSchema.parse({
+          fullName: 'Nguyễn Văn B',
+          department: 'Điện tử - Viễn thông',
+        });
+        expect(parsed.fullName).toBe('Nguyễn Văn B');
+        expect(parsed.department).toBe('Điện tử - Viễn thông');
+        expect(parsed.role).toBeUndefined();
+      });
+
+      it('allows updating role to a valid UserRole', () => {
+        const parsed = updateUserSchema.parse({ role: UserRole.LAB_MANAGER });
+        expect(parsed.role).toBe(UserRole.LAB_MANAGER);
+      });
+
+      it('rejects empty update object', () => {
+        expect(updateUserSchema.safeParse({}).success).toBe(false);
+      });
+
+      it('rejects unrecognized extra fields in strict mode', () => {
+        expect(updateUserSchema.safeParse({ fullName: 'Nguyễn Văn C', extraField: 123 }).success).toBe(false);
+      });
+    });
+
+    describe('updateUserStatusSchema', () => {
+      it('accepts setting isActive', () => {
+        const parsed = updateUserStatusSchema.parse({ isActive: false, reason: 'Nghỉ việc' });
+        expect(parsed.isActive).toBe(false);
+        expect(parsed.reason).toBe('Nghỉ việc');
+      });
+
+      it('accepts setting isLocked', () => {
+        const parsed = updateUserStatusSchema.parse({ isLocked: true });
+        expect(parsed.isLocked).toBe(true);
+      });
+
+      it('rejects empty object without isActive or isLocked', () => {
+        expect(updateUserStatusSchema.safeParse({ reason: 'Không có trạng thái' }).success).toBe(false);
+      });
+    });
+
+    describe('resetUserPasswordSchema', () => {
+      it('accepts password with at least 6 characters', () => {
+        const parsed = resetUserPasswordSchema.parse({ newPassword: 'NewSecurePass@123' });
+        expect(parsed.newPassword).toBe('NewSecurePass@123');
+      });
+
+      it('rejects password shorter than 6 characters', () => {
+        expect(resetUserPasswordSchema.safeParse({ newPassword: '123' }).success).toBe(false);
+      });
+    });
+
+    describe('queryUsersSchema', () => {
+      it('applies defaults for page, limit, sortBy, sortOrder', () => {
+        const parsed = queryUsersSchema.parse({});
+        expect(parsed.page).toBe(1);
+        expect(parsed.limit).toBe(20);
+        expect(parsed.sortBy).toBe(UserSortField.CREATED_AT);
+        expect(parsed.sortOrder).toBe(SortOrder.DESC);
+      });
+
+      it('parses role and boolean filters', () => {
+        const parsed = queryUsersSchema.parse({
+          role: UserRole.TECHNICIAN,
+          isActive: 'true',
+          isLocked: 'false',
+        });
+        expect(parsed.role).toBe(UserRole.TECHNICIAN);
+        expect(parsed.isActive).toBe(true);
+        expect(parsed.isLocked).toBe(false);
+      });
+    });
+  });
+
+  // ==========================================
+  // KIT MANAGEMENT VALIDATION SUITES
+  // ==========================================
+
+  describe('Kit Management Validation Suites', () => {
+    describe('kitItemInputSchema', () => {
+      it('validates a valid kit item', () => {
+        const parsed = kitItemInputSchema.parse({
+          itemId: validUUID,
+          quantity: 2,
+          notes: 'Module chính',
+        });
+        expect(parsed.itemId).toBe(validUUID);
+        expect(parsed.quantity).toBe(2);
+      });
+
+      it('rejects quantity <= 0', () => {
+        expect(kitItemInputSchema.safeParse({ itemId: validUUID, quantity: 0 }).success).toBe(false);
+        expect(kitItemInputSchema.safeParse({ itemId: validUUID, quantity: -1 }).success).toBe(false);
+      });
+
+      it('rejects non-uuid itemId', () => {
+        expect(kitItemInputSchema.safeParse({ itemId: 'not-a-uuid', quantity: 1 }).success).toBe(false);
+      });
+    });
+
+    describe('createKitSchema', () => {
+      it('validates a correct kit creation payload', () => {
+        const parsed = createKitSchema.parse({
+          code: 'KIT-IOT-001',
+          name: 'Bộ thực hành IoT ESP32 Cơ bản',
+          description: 'Bao gồm kit ESP32 và cảm biến DHT22',
+          locationId: validUUID,
+          items: [
+            { itemId: validUUID, quantity: 1, notes: 'ESP32 board' },
+            { itemId: validUUID2, quantity: 2, notes: 'DHT22 sensors' },
+          ],
+        });
+        expect(parsed.code).toBe('KIT-IOT-001');
+        expect(parsed.items).toHaveLength(2);
+      });
+
+      it('rejects duplicate itemIds in kit items', () => {
+        const res = createKitSchema.safeParse({
+          code: 'KIT-DUP-01',
+          name: 'Kit Trùng Linh Kiện',
+          items: [
+            { itemId: validUUID, quantity: 1 },
+            { itemId: validUUID, quantity: 2 },
+          ],
+        });
+        expect(res.success).toBe(false);
+      });
+
+      it('rejects empty items array', () => {
+        const res = createKitSchema.safeParse({
+          code: 'KIT-EMPTY',
+          name: 'Kit Rỗng',
+          items: [],
+        });
+        expect(res.success).toBe(false);
+      });
+
+      it('rejects invalid kit code format', () => {
+        const res = createKitSchema.safeParse({
+          code: 'KIT IOT $#@',
+          name: 'Kit Tên Sai',
+          items: [{ itemId: validUUID, quantity: 1 }],
+        });
+        expect(res.success).toBe(false);
+      });
+    });
+
+    describe('updateKitSchema', () => {
+      it('validates partial update of name and description', () => {
+        const parsed = updateKitSchema.parse({
+          name: 'Tên Kit Mới',
+          description: 'Mô tả mới',
+        });
+        expect(parsed.name).toBe('Tên Kit Mới');
+      });
+
+      it('rejects empty update object', () => {
+        expect(updateKitSchema.safeParse({}).success).toBe(false);
+      });
+
+      it('rejects update with duplicate items', () => {
+        const res = updateKitSchema.safeParse({
+          items: [
+            { itemId: validUUID, quantity: 1 },
+            { itemId: validUUID, quantity: 3 },
+          ],
+        });
+        expect(res.success).toBe(false);
+      });
+    });
+
+    describe('updateKitStatusSchema', () => {
+      it('validates valid status transition payload', () => {
+        const parsed = updateKitStatusSchema.parse({
+          status: KitStatus.MAINTENANCE,
+          notes: 'Đang kiểm tra bảo trì linh kiện hỏng',
+        });
+        expect(parsed.status).toBe(KitStatus.MAINTENANCE);
+      });
+
+      it('rejects invalid status', () => {
+        expect(updateKitStatusSchema.safeParse({ status: 'BROKEN' }).success).toBe(false);
+      });
+    });
+
+    describe('queryKitsSchema', () => {
+      it('applies defaults for page, limit, sortBy, sortOrder', () => {
+        const parsed = queryKitsSchema.parse({});
+        expect(parsed.page).toBe(1);
+        expect(parsed.limit).toBe(20);
+        expect(parsed.sortBy).toBe(KitSortField.CREATED_AT);
+        expect(parsed.sortOrder).toBe(SortOrder.DESC);
+      });
+
+      it('validates status and locationId filters', () => {
+        const parsed = queryKitsSchema.parse({
+          status: KitStatus.AVAILABLE,
+          locationId: validUUID,
+        });
+        expect(parsed.status).toBe(KitStatus.AVAILABLE);
+        expect(parsed.locationId).toBe(validUUID);
+      });
+    });
+  });
 });
+
 

@@ -65,6 +65,23 @@ export enum BorrowSortField {
   STATUS = 'status',
 }
 
+export enum UserSortField {
+  FULL_NAME = 'fullName',
+  EMAIL = 'email',
+  ROLE = 'role',
+  STUDENT_OR_STAFF_ID = 'studentOrStaffId',
+  CREATED_AT = 'createdAt',
+  IS_ACTIVE = 'isActive',
+}
+
+export enum KitSortField {
+  CODE = 'code',
+  NAME = 'name',
+  STATUS = 'status',
+  CREATED_AT = 'createdAt',
+  UPDATED_AT = 'updatedAt',
+}
+
 export enum SortOrder {
   ASC = 'asc',
   DESC = 'desc',
@@ -107,6 +124,14 @@ export enum AssetCondition {
   GOOD = 'GOOD',
   DAMAGED = 'DAMAGED',
   LOST = 'LOST',
+}
+
+// Kit Status
+export enum KitStatus {
+  AVAILABLE = 'AVAILABLE',
+  ALLOCATED = 'ALLOCATED',
+  MAINTENANCE = 'MAINTENANCE',
+  RETIRED = 'RETIRED',
 }
 
 // Stock Balance Numbers Interface
@@ -454,6 +479,65 @@ export interface BorrowRequestResponse {
   reservations?: StockReservationResponse[];
   returnTransactions?: ReturnTransactionResponse[];
   isOverdue: boolean;
+  createdAt: string | Date;
+  updatedAt: string | Date;
+}
+
+// User Response DTO
+export interface UserResponse {
+  id: string;
+  email: string;
+  fullName: string;
+  role: UserRole;
+  roleId?: string;
+  studentOrStaffId?: string | null;
+  department?: string | null;
+  phoneNumber?: string | null;
+  isActive: boolean;
+  isLocked: boolean;
+  failedLoginAttempts: number;
+  createdAt: string | Date;
+  updatedAt: string | Date;
+}
+
+// Kit Item Response DTO
+export interface KitItemResponse {
+  id: string;
+  kitId: string;
+  itemId: string;
+  item?: {
+    id: string;
+    code: string;
+    name: string;
+    unit: string;
+    type: ItemType;
+  };
+  quantity: number;
+  notes?: string | null;
+  createdAt: string | Date;
+}
+
+// Kit Response DTO
+export interface KitResponse {
+  id: string;
+  code: string;
+  name: string;
+  description?: string | null;
+  status: KitStatus;
+  locationId?: string | null;
+  location?: {
+    id: string;
+    code: string;
+    name: string;
+  } | null;
+  createdById?: string | null;
+  createdBy?: {
+    id: string;
+    fullName: string;
+    email: string;
+  } | null;
+  items: KitItemResponse[];
+  totalItems: number;
   createdAt: string | Date;
   updatedAt: string | Date;
 }

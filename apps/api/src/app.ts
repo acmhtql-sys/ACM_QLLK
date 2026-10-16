@@ -16,6 +16,7 @@ import { stockMovementsRouter } from './modules/stock-movements/stock-movements.
 import { borrowRouter } from './modules/borrow/borrow.router';
 import { reportsRouter } from './modules/reports/reports.router';
 import { auditLogsRouter } from './modules/audit-logs/audit-logs.router';
+import { kitsRouter } from './modules/kits/kits.router';
 import { cloudStagingReadOnlyMiddleware, StagingReadOnlyOptions } from './middleware/cloudStagingReadOnly';
 
 export function createApp(options?: { stagingReadOnly?: StagingReadOnlyOptions }): Express {
@@ -49,6 +50,7 @@ export function createApp(options?: { stagingReadOnly?: StagingReadOnlyOptions }
   app.use(`${prefix}/stock-transactions`, stockTransactionsRouter);
   app.use(`${prefix}/stock-movements`, stockMovementsRouter);
   app.use(`${prefix}/borrow-requests`, borrowRouter);
+  app.use(`${prefix}/kits`, kitsRouter);
   app.use(`${prefix}/reports`, reportsRouter);
   app.use(`${prefix}/audit-logs`, auditLogsRouter);
 

@@ -15,6 +15,9 @@ import {
   BorrowStatus,
   AssetCondition,
   StockStatus,
+  KitStatus,
+  UserSortField,
+  KitSortField,
 } from './types';
 
 // Auth validation schemas
@@ -33,13 +36,38 @@ export const createUserSchema = z.object({
   phoneNumber: z.string().optional(),
 });
 
-// Category schema
-export const createCategorySchema = z.object({
-  name: z.string().min(2, 'Tên danh mục phải có ít nhất 2 ký tự'),
-  code: z.string().min(2, 'Mã danh mục phải có ít nhất 2 ký tự'),
-  description: z.string().optional(),
-  parentId: z.string().uuid().optional().nullable(),
-});
+// User update schema (empty object is rejected)
+export const updateUserSchema = z
+  .object({
+    fullName: z.string().trim().min(2, 'Họ tên phải có ít nhất 2 ký tự').optional(),
+    role: z.nativeEnum(UserRole).optional(),
+    studentOrStaffId: z.string().trim().optional().nullable(),
+    department: z.string().trim().optional().nullable(),
+    phoneNumber: z.string().trim().optional().nullable(),
+  })
+  .strict()
+  .refine((data) => Object.keys(data).length > 0, {
+    message: 'Dữ liệu cập nhật người dùng không được để trống',
+  });
+
+// User status update schema (Activate/Deactivate or Lock/Unlock)
+export const updateUserStatusSchema = z
+  .object({
+    isActive: z.boolean({ invalid_type_error: 'Trạng thái hoạt động phải là boolean' }).optional(),
+    isLocked: z.boolean({ invalid_type_error: 'Trạng thái khóa phải là boolean' }).optional(),
+    reason: z.string().trim().max(255, 'Lý do thay đổi trạng thái tối đa 255 ký tự').optional(),
+  })
+  .strict()
+  .refine((data) => data.isActive !== undefined || data.isLocked !== undefined, {
+    message: 'Phải chỉ định ít nhất một trạng thái cần thay đổi (isActive hoặc isLocked)',
+  });
+
+// Admin reset password schema
+export const resetUserPasswordSchema = z
+  .object({
+    newPassword: z.string().min(6, 'Mật khẩu mới phải có ít nhất 6 ký tự'),
+  })
+  .strict();
 
 // Helper to safely parse boolean query params without silently ignoring invalid strings
 export const booleanQueryParam = z.preprocess((val) => {
@@ -48,6 +76,28 @@ export const booleanQueryParam = z.preprocess((val) => {
   if (val === 'false' || val === false) return false;
   return val; // Returns raw value so z.boolean throws error instead of silently passing undefined
 }, z.boolean({ invalid_type_error: 'Giá trị lọc phải là true hoặc false' }).optional());
+
+// Query users schema
+export const queryUsersSchema = z.object({
+  search: z.string().trim().optional(),
+  role: z.nativeEnum(UserRole).optional(),
+  isActive: booleanQueryParam,
+  isLocked: booleanQueryParam,
+  department: z.string().trim().optional(),
+  sortBy: z.nativeEnum(UserSortField).default(UserSortField.CREATED_AT),
+  sortOrder: z.nativeEnum(SortOrder).default(SortOrder.DESC),
+  page: z.preprocess((val) => (val !== undefined && val !== '' ? Number(val) : 1), z.number().int().min(1).default(1)),
+  limit: z.preprocess((val) => (val !== undefined && val !== '' ? Number(val) : 20), z.number().int().min(1).max(100).default(20)),
+});
+
+
+// Category schema
+export const createCategorySchema = z.object({
+  name: z.string().min(2, 'Tên danh mục phải có ít nhất 2 ký tự'),
+  code: z.string().min(2, 'Mã danh mục phải có ít nhất 2 ký tự'),
+  description: z.string().optional(),
+  parentId: z.string().uuid().optional().nullable(),
+});
 
 // Item create schema
 export const createItemSchema = z
@@ -589,10 +639,85 @@ export const queryBorrowRequestsSchema = z.object({
   sortOrder: z.nativeEnum(SortOrder).default(SortOrder.DESC),
 });
 
+// ==========================================
+// KIT SCHEMAS
+// ==========================================
+
+export const kitItemInputSchema = z.object({
+  itemId: z.string().uuid('ID linh kiện (itemId) không hợp lệ'),
+  quantity: z.number().int().positive('Số lượng linh kiện trong kit phải lớn hơn 0'),
+  notes: z.string().trim().max(255, 'Ghi chú linh kiện trong kit tối đa 255 ký tự').optional().nullable(),
+});
+
+export const createKitSchema = z
+  .object({
+    code: z
+      .string()
+      .trim()
+      .min(2, 'Mã hộp kit phải có ít nhất 2 ký tự')
+      .max(50, 'Mã hộp kit tối đa 50 ký tự')
+      .regex(/^[A-Za-z0-9_-]+$/, 'Mã hộp kit chỉ được chứa chữ cái, số, dấu gạch ngang (-) và gạch dưới (_)'),
+    name: z.string().trim().min(2, 'Tên hộp kit phải có ít nhất 2 ký tự').max(100, 'Tên hộp kit tối đa 100 ký tự'),
+    description: z.string().trim().optional().nullable(),
+    locationId: z.string().uuid('ID vị trí lưu trữ hộp kit (locationId) không hợp lệ').optional().nullable(),
+    items: z.array(kitItemInputSchema).min(1, 'Hộp kit phải có ít nhất 1 linh kiện thành phần'),
+  })
+  .strict()
+  .refine(
+    (data) => {
+      const itemIds = data.items.map((i) => i.itemId);
+      return new Set(itemIds).size === itemIds.length;
+    },
+    { message: 'Danh sách linh kiện trong hộp kit không được chứa linh kiện trùng lặp' }
+  );
+
+export const updateKitSchema = z
+  .object({
+    name: z.string().trim().min(2, 'Tên hộp kit phải có ít nhất 2 ký tự').max(100, 'Tên hộp kit tối đa 100 ký tự').optional(),
+    description: z.string().trim().optional().nullable(),
+    locationId: z.string().uuid('ID vị trí lưu trữ hộp kit (locationId) không hợp lệ').optional().nullable(),
+    items: z
+      .array(kitItemInputSchema)
+      .min(1, 'Hộp kit phải có ít nhất 1 linh kiện thành phần')
+      .refine(
+        (items) => {
+          const itemIds = items.map((i) => i.itemId);
+          return new Set(itemIds).size === itemIds.length;
+        },
+        { message: 'Danh sách linh kiện trong hộp kit không được chứa linh kiện trùng lặp' }
+      )
+      .optional(),
+  })
+  .strict()
+  .refine((data) => Object.keys(data).length > 0, {
+    message: 'Dữ liệu cập nhật hộp kit không được để trống',
+  });
+
+export const updateKitStatusSchema = z
+  .object({
+    status: z.nativeEnum(KitStatus, { required_error: 'Trạng thái kit là bắt buộc' }),
+    notes: z.string().trim().max(255, 'Ghi chú thay đổi trạng thái tối đa 255 ký tự').optional().nullable(),
+  })
+  .strict();
+
+export const queryKitsSchema = z.object({
+  search: z.string().trim().optional(),
+  status: z.nativeEnum(KitStatus).optional(),
+  locationId: z.string().uuid('ID vị trí không hợp lệ').optional(),
+  sortBy: z.nativeEnum(KitSortField).default(KitSortField.CREATED_AT),
+  sortOrder: z.nativeEnum(SortOrder).default(SortOrder.DESC),
+  page: z.preprocess((val) => (val !== undefined && val !== '' ? Number(val) : 1), z.number().int().min(1).default(1)),
+  limit: z.preprocess((val) => (val !== undefined && val !== '' ? Number(val) : 20), z.number().int().min(1).max(100).default(20)),
+});
 
 // Inferred Types
 export type LoginInput = z.infer<typeof loginSchema>;
 export type CreateUserInput = z.infer<typeof createUserSchema>;
+export type UpdateUserInput = z.infer<typeof updateUserSchema>;
+export type UpdateUserStatusInput = z.infer<typeof updateUserStatusSchema>;
+export type ResetUserPasswordInput = z.infer<typeof resetUserPasswordSchema>;
+export type QueryUsersInput = z.infer<typeof queryUsersSchema>;
+
 export type CreateCategoryInput = z.infer<typeof createCategorySchema>;
 export type CreateItemInput = z.infer<typeof createItemSchema>;
 export type UpdateItemInput = z.infer<typeof updateItemSchema>;
@@ -635,6 +760,13 @@ export type HandoverBorrowRequestInput = z.infer<typeof handoverBorrowRequestSch
 export type ReturnBorrowItemInput = z.infer<typeof returnBorrowItemSchema>;
 export type ReturnBorrowRequestInput = z.infer<typeof returnBorrowRequestSchema>;
 export type QueryBorrowRequestsInput = z.infer<typeof queryBorrowRequestsSchema>;
+
+export type KitItemInput = z.infer<typeof kitItemInputSchema>;
+export type CreateKitInput = z.infer<typeof createKitSchema>;
+export type UpdateKitInput = z.infer<typeof updateKitSchema>;
+export type UpdateKitStatusInput = z.infer<typeof updateKitStatusSchema>;
+export type QueryKitsInput = z.infer<typeof queryKitsSchema>;
+
 
 
 // Idempotency Query Schemas & Types (Step S2A)

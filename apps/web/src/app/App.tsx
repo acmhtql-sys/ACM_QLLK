@@ -6,6 +6,7 @@ import { LoginPage } from '../pages/LoginPage';
 import { DashboardPage } from '../pages/DashboardPage';
 import { ItemsPage } from '../pages/ItemsPage';
 import { CategoriesPage } from '../pages/CategoriesPage';
+import { KitsPage } from '../pages/KitsPage';
 import { InventoryPage } from '../pages/InventoryPage';
 import { StockTransactionsPage } from '../pages/StockTransactionsPage';
 import { BorrowReturnPage } from '../pages/BorrowReturnPage';
@@ -41,6 +42,7 @@ export const App: React.FC = () => {
           <Route path="dashboard" element={<DashboardPage />} />
           <Route path="items" element={<ItemsPage />} />
           <Route path="categories" element={<CategoriesPage />} />
+          <Route path="kits" element={<KitsPage />} />
           <Route path="inventory" element={<InventoryPage />} />
           <Route path="transactions" element={<StockTransactionsPage />} />
           <Route path="borrow-return" element={<BorrowReturnPage />} />
