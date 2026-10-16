@@ -21,6 +21,10 @@ import { cloudStagingReadOnlyMiddleware, StagingReadOnlyOptions } from './middle
 export function createApp(options?: { stagingReadOnly?: StagingReadOnlyOptions }): Express {
   const app = express();
 
+  // Only trust the single hosting proxy in cloud staging. Rate limiting uses req.ip,
+  // never a raw client-supplied X-Forwarded-For value.
+  app.set('trust proxy', env.ACM_DEPLOYMENT_PROFILE === 'cloud_staging' ? 1 : false);
+
   // Basic security and parsing middleware
   app.use(helmet());
   app.use(cors({ origin: env.CORS_ORIGIN, credentials: true }));
