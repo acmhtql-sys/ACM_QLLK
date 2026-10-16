@@ -57,6 +57,14 @@ export enum StockBalanceSortField {
   UPDATED_AT = 'updatedAt',
 }
 
+export enum BorrowSortField {
+  REQUEST_NUMBER = 'requestNumber',
+  CREATED_AT = 'createdAt',
+  EXPECTED_BORROW_DATE = 'expectedBorrowDate',
+  EXPECTED_RETURN_DATE = 'expectedReturnDate',
+  STATUS = 'status',
+}
+
 export enum SortOrder {
   ASC = 'asc',
   DESC = 'desc',
@@ -336,3 +344,117 @@ export interface PaginatedResponse<T> {
   items: T[];
   meta: PaginationMeta;
 }
+
+// Borrow Request Detail DTO
+export interface BorrowDetailResponse {
+  id: string;
+  borrowRequestId: string;
+  itemId: string;
+  item?: {
+    id: string;
+    code: string;
+    name: string;
+    unit: string;
+  };
+  assetId?: string | null;
+  quantity: number;
+  returnedQuantity: number;
+  notes?: string | null;
+  createdAt: string | Date;
+  updatedAt: string | Date;
+}
+
+// Return Detail DTO
+export interface ReturnDetailResponse {
+  id: string;
+  returnTransactionId: string;
+  itemId: string;
+  item?: {
+    id: string;
+    code: string;
+    name: string;
+    unit: string;
+  };
+  assetId?: string | null;
+  quantity: number;
+  condition: AssetCondition;
+  notes?: string | null;
+  createdAt: string | Date;
+}
+
+// Return Transaction DTO
+export interface ReturnTransactionResponse {
+  id: string;
+  returnNumber: string;
+  borrowRequestId: string;
+  receiverId: string;
+  receiver?: {
+    id: string;
+    fullName: string;
+    email: string;
+  };
+  notes?: string | null;
+  details: ReturnDetailResponse[];
+  createdAt: string | Date;
+  updatedAt: string | Date;
+}
+
+// Stock Reservation DTO
+export interface StockReservationResponse {
+  id: string;
+  borrowRequestId: string;
+  itemId: string;
+  item?: {
+    id: string;
+    code: string;
+    name: string;
+    unit: string;
+  };
+  locationId: string;
+  location?: {
+    id: string;
+    code: string;
+    name: string;
+  };
+  quantity: number;
+  status: ReservationStatus;
+  expiresAt?: string | Date | null;
+  createdAt: string | Date;
+}
+
+// Borrow Request DTO
+export interface BorrowRequestResponse {
+  id: string;
+  requestNumber: string;
+  borrowerId: string;
+  borrower?: {
+    id: string;
+    fullName: string;
+    email: string;
+  };
+  borrowerName?: string;
+  borrowerEmail?: string;
+  approverId?: string | null;
+  approver?: {
+    id: string;
+    fullName: string;
+    email: string;
+  } | null;
+  approverName?: string | null;
+  status: BorrowStatus;
+  purpose: string;
+  expectedBorrowDate: string | Date;
+  expectedReturnDate: string | Date;
+  actualBorrowDate?: string | Date | null;
+  actualReturnDate?: string | Date | null;
+  rejectionReason?: string | null;
+  notes?: string | null;
+  itemCount: number;
+  details: BorrowDetailResponse[];
+  reservations?: StockReservationResponse[];
+  returnTransactions?: ReturnTransactionResponse[];
+  isOverdue: boolean;
+  createdAt: string | Date;
+  updatedAt: string | Date;
+}
+

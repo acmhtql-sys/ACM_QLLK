@@ -35,6 +35,9 @@ export const StatusBadge: React.FC<StatusBadgeProps> = ({ status, variant = 'def
       case 'HANDED_OVER':
         colorClasses = 'bg-indigo-50 text-indigo-700 border-indigo-200';
         break;
+      case 'PARTIALLY_RETURNED':
+        colorClasses = 'bg-cyan-50 text-cyan-700 border-cyan-200';
+        break;
       case 'RETURNED':
         colorClasses = 'bg-emerald-50 text-emerald-700 border-emerald-200';
         break;

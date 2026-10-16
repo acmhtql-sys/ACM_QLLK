@@ -20,6 +20,13 @@ import {
   queryStockMovementsSchema,
   queryIdempotencyParamsSchema,
   idempotencyQueryResponseSchema,
+  createBorrowRequestSchema,
+  approveBorrowRequestSchema,
+  rejectBorrowRequestSchema,
+  cancelBorrowRequestSchema,
+  handoverBorrowRequestSchema,
+  returnBorrowRequestSchema,
+  queryBorrowRequestsSchema,
 } from './validators';
 import {
   ItemType,
@@ -33,6 +40,9 @@ import {
   StockMovementSortField,
   StockBalanceSortField,
   StockStatus,
+  BorrowStatus,
+  AssetCondition,
+  BorrowSortField,
 } from './types';
 
 describe('Shared Validators Tests', () => {
@@ -1154,4 +1164,142 @@ describe('Shared Validators Tests', () => {
       }
     });
   });
+
+  describe('Borrow & Return Schemas', () => {
+    describe('createBorrowRequestSchema', () => {
+      it('validates a valid borrow request', () => {
+        const payload = {
+          expectedBorrowDate: '2026-10-20',
+          expectedReturnDate: '2026-10-25',
+          purpose: 'Phục vụ đề tài nghiên cứu robot AGV',
+          notes: 'Mượn thêm cáp kết nối',
+          items: [{ itemId: validUUID, quantity: 2 }],
+        };
+        const parsed = createBorrowRequestSchema.parse(payload);
+        expect(parsed.purpose).toBe('Phục vụ đề tài nghiên cứu robot AGV');
+        expect(parsed.items).toHaveLength(1);
+        expect(parsed.items[0].quantity).toBe(2);
+      });
+
+      it('rejects when expectedReturnDate is before expectedBorrowDate', () => {
+        const payload = {
+          expectedBorrowDate: '2026-10-25',
+          expectedReturnDate: '2026-10-20',
+          purpose: 'Mượn thiết bị kiểm thử',
+          items: [{ itemId: validUUID, quantity: 1 }],
+        };
+        const result = createBorrowRequestSchema.safeParse(payload);
+        expect(result.success).toBe(false);
+        if (!result.success) {
+          expect(result.error.errors.some((e) => e.path.includes('expectedReturnDate'))).toBe(true);
+        }
+      });
+
+      it('rejects when items array is empty', () => {
+        const payload = {
+          expectedBorrowDate: '2026-10-20',
+          expectedReturnDate: '2026-10-25',
+          purpose: 'Mượn thiết bị kiểm thử',
+          items: [],
+        };
+        const result = createBorrowRequestSchema.safeParse(payload);
+        expect(result.success).toBe(false);
+      });
+
+      it('rejects when quantity is zero or negative', () => {
+        const payload = {
+          expectedBorrowDate: '2026-10-20',
+          expectedReturnDate: '2026-10-25',
+          purpose: 'Mượn linh kiện thí nghiệm',
+          items: [{ itemId: validUUID, quantity: 0 }],
+        };
+        expect(createBorrowRequestSchema.safeParse(payload).success).toBe(false);
+      });
+
+      it('rejects short purpose (< 3 characters)', () => {
+        const payload = {
+          expectedBorrowDate: '2026-10-20',
+          expectedReturnDate: '2026-10-25',
+          purpose: 'OK',
+          items: [{ itemId: validUUID, quantity: 1 }],
+        };
+        expect(createBorrowRequestSchema.safeParse(payload).success).toBe(false);
+      });
+    });
+
+    describe('rejectBorrowRequestSchema', () => {
+      it('validates rejection reason with >= 3 characters', () => {
+        const payload = { rejectionReason: 'Kho đã hết số lượng khả dụng' };
+        expect(rejectBorrowRequestSchema.parse(payload).rejectionReason).toBe('Kho đã hết số lượng khả dụng');
+      });
+
+      it('rejects empty or too short rejectionReason', () => {
+        expect(rejectBorrowRequestSchema.safeParse({ rejectionReason: 'No' }).success).toBe(false);
+        expect(rejectBorrowRequestSchema.safeParse({ rejectionReason: '' }).success).toBe(false);
+      });
+    });
+
+    describe('returnBorrowRequestSchema', () => {
+      it('validates valid return items with condition', () => {
+        const payload = {
+          items: [
+            {
+              borrowDetailId: validUUID,
+              returnedQuantity: 2,
+              condition: AssetCondition.GOOD,
+            },
+            {
+              borrowDetailId: validUUID2,
+              returnedQuantity: 1,
+              condition: AssetCondition.DAMAGED,
+              notes: 'Gãy chân cắm',
+            },
+          ],
+          notes: 'Đã kiểm tra linh kiện khi trả',
+        };
+        const parsed = returnBorrowRequestSchema.parse(payload);
+        expect(parsed.items).toHaveLength(2);
+        expect(parsed.items[1].condition).toBe(AssetCondition.DAMAGED);
+      });
+
+      it('rejects when return items array is empty', () => {
+        expect(returnBorrowRequestSchema.safeParse({ items: [] }).success).toBe(false);
+      });
+
+      it('rejects when returnedQuantity is <= 0', () => {
+        const payload = {
+          items: [{ borrowDetailId: validUUID, returnedQuantity: 0 }],
+        };
+        expect(returnBorrowRequestSchema.safeParse(payload).success).toBe(false);
+      });
+    });
+
+    describe('queryBorrowRequestsSchema', () => {
+      it('applies defaults for page, limit, sortBy, sortOrder', () => {
+        const parsed = queryBorrowRequestsSchema.parse({});
+        expect(parsed.page).toBe(1);
+        expect(parsed.limit).toBe(20);
+        expect(parsed.sortBy).toBe(BorrowSortField.CREATED_AT);
+        expect(parsed.sortOrder).toBe(SortOrder.DESC);
+      });
+
+      it('parses isOverdue boolean query param', () => {
+        const parsedTrue = queryBorrowRequestsSchema.parse({ isOverdue: 'true' });
+        expect(parsedTrue.isOverdue).toBe(true);
+
+        const parsedFalse = queryBorrowRequestsSchema.parse({ isOverdue: 'false' });
+        expect(parsedFalse.isOverdue).toBe(false);
+      });
+
+      it('rejects invalid isOverdue value', () => {
+        expect(queryBorrowRequestsSchema.safeParse({ isOverdue: 'invalid_val' }).success).toBe(false);
+      });
+
+      it('validates status filter', () => {
+        const parsed = queryBorrowRequestsSchema.parse({ status: BorrowStatus.APPROVED });
+        expect(parsed.status).toBe(BorrowStatus.APPROVED);
+      });
+    });
+  });
 });
+
