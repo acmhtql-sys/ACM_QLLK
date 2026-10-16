@@ -80,6 +80,13 @@ enum LocationType {
   BIN
 }
 
+enum KitStatus {
+  AVAILABLE
+  ALLOCATED
+  MAINTENANCE
+  RETIRED
+}
+
 // ==========================================
 // MODELS
 // ==========================================
@@ -118,9 +125,13 @@ model User {
   stockTransactionsMade   StockTransaction[]      @relation("CreatedByRelation")
   returnsReceived         ReturnTransaction[]     @relation("ReceiverRelation")
   stockMovementsMade      StockMovement[]         @relation("UserMovementRelation")
+  kitsCreated             Kit[]                   @relation("UserKitCreatedRelation")
   auditLogs               AuditLog[]
   idempotencyRecords      IdempotencyRecord[]
 
+  @@index([roleId])
+  @@index([role])
+  @@index([isActive, isLocked])
   @@map("users")
 }
 
@@ -136,6 +147,7 @@ model Category {
   createdAt   DateTime   @default(now())
   updatedAt   DateTime   @updatedAt
 
+  @@index([parentId])
   @@map("categories")
 }
 
@@ -162,7 +174,11 @@ model Item {
   stockTransactionDetails StockTransactionDetail[]
   borrowDetails           BorrowDetail[]
   returnDetails           ReturnDetail[]
+  kitItems                KitItem[]
 
+  @@index([categoryId])
+  @@index([type])
+  @@index([isActive])
   @@map("items")
 }
 
@@ -185,7 +201,11 @@ model Location {
   stockReservations             StockReservation[]
   stockTransactionDetails       StockTransactionDetail[] @relation("TransferFromLocation")
   stockTransactionDetailsDest   StockTransactionDetail[] @relation("TransferToLocation")
+  kits                          Kit[]
 
+  @@index([parentId])
+  @@index([type])
+  @@index([isActive])
   @@map("locations")
 }
 
@@ -207,6 +227,9 @@ model Asset {
   borrowDetails   BorrowDetail[]
   returnDetails   ReturnDetail[]
 
+  @@index([itemId])
+  @@index([locationId])
+  @@index([status])
   @@map("assets")
 }
 
@@ -230,6 +253,8 @@ model StockBalance {
   updatedAt    DateTime  @updatedAt
 
   @@unique([itemId, locationId])
+  @@index([locationId])
+  @@index([itemId])
   @@map("stock_balances")
 }
 
@@ -250,6 +275,10 @@ model StockMovement {
   createdBy     User?                 @relation("UserMovementRelation", fields: [createdById], references: [id])
   createdAt     DateTime              @default(now())
 
+  @@index([itemId, locationId])
+  @@index([createdAt])
+  @@index([createdById])
+  @@index([referenceType, referenceId])
   @@map("stock_movements")
 }
 
@@ -267,6 +296,9 @@ model StockReservation {
   createdAt       DateTime          @default(now())
   updatedAt       DateTime          @updatedAt
 
+  @@index([borrowRequestId])
+  @@index([itemId, locationId])
+  @@index([status])
   @@map("stock_reservations")
 }
 
@@ -283,6 +315,9 @@ model StockTransaction {
   createdAt         DateTime                 @default(now())
   updatedAt         DateTime                 @updatedAt
 
+  @@index([createdById])
+  @@index([type])
+  @@index([createdAt])
   @@map("stock_transactions")
 }
 
@@ -301,6 +336,10 @@ model StockTransactionDetail {
   notes              String?
   createdAt          DateTime         @default(now())
 
+  @@index([stockTransactionId])
+  @@index([itemId])
+  @@index([locationId])
+  @@index([toLocationId])
   @@map("stock_transaction_details")
 }
 
@@ -325,6 +364,10 @@ model BorrowRequest {
   createdAt          DateTime           @default(now())
   updatedAt          DateTime           @updatedAt
 
+  @@index([borrowerId])
+  @@index([approverId])
+  @@index([status])
+  @@index([expectedReturnDate])
   @@map("borrow_requests")
 }
 
@@ -342,6 +385,9 @@ model BorrowDetail {
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
 
+  @@index([borrowRequestId])
+  @@index([itemId])
+  @@index([assetId])
   @@map("borrow_details")
 }
 
@@ -357,6 +403,9 @@ model ReturnTransaction {
   createdAt       DateTime       @default(now())
   updatedAt       DateTime       @updatedAt
 
+  @@index([borrowRequestId])
+  @@index([receiverId])
+  @@index([createdAt])
   @@map("return_transactions")
 }
 
@@ -373,6 +422,9 @@ model ReturnDetail {
   notes               String?
   createdAt           DateTime          @default(now())
 
+  @@index([returnTransactionId])
+  @@index([itemId])
+  @@index([assetId])
   @@map("return_details")
 }
 
@@ -389,6 +441,10 @@ model AuditLog {
   userAgent String?
   createdAt DateTime @default(now())
 
+  @@index([userId])
+  @@index([entity, entityId])
+  @@index([action])
+  @@index([createdAt])
   @@map("audit_logs")
 }
 
@@ -410,4 +466,40 @@ model IdempotencyRecord {
   @@index([userId, endpoint])
   @@index([expiresAt])
   @@map("idempotency_records")
+}
+
+model Kit {
+  id          String     @id @default(uuid()) @db.Uuid
+  code        String     @unique // KIT-IOT-001
+  name        String
+  description String?
+  status      KitStatus  @default(AVAILABLE)
+  locationId  String?    @db.Uuid
+  location    Location?  @relation(fields: [locationId], references: [id], onDelete: SetNull)
+  createdById String?    @db.Uuid
+  createdBy   User?      @relation("UserKitCreatedRelation", fields: [createdById], references: [id], onDelete: SetNull)
+  items       KitItem[]
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  @@index([locationId])
+  @@index([createdById])
+  @@index([status])
+  @@map("kits")
+}
+
+model KitItem {
+  id        String   @id @default(uuid()) @db.Uuid
+  kitId     String   @db.Uuid
+  kit       Kit      @relation(fields: [kitId], references: [id], onDelete: Cascade)
+  itemId    String   @db.Uuid
+  item      Item     @relation(fields: [itemId], references: [id], onDelete: Restrict)
+  quantity  Int
+  notes     String?
+  createdAt DateTime @default(now())
+
+  @@unique([kitId, itemId])
+  @@index([kitId])
+  @@index([itemId])
+  @@map("kit_items")
 }
