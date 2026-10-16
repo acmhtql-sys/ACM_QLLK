@@ -36,6 +36,8 @@ import {
   updateKitSchema,
   updateKitStatusSchema,
   queryKitsSchema,
+  queryAuditLogsSchema,
+  queryReportsSchema,
 } from './validators';
 import {
   ItemType,
@@ -56,6 +58,7 @@ import {
   UserSortField,
   KitStatus,
   KitSortField,
+  AuditLogSortField,
 } from './types';
 
 describe('Shared Validators Tests', () => {
@@ -1525,6 +1528,55 @@ describe('Shared Validators Tests', () => {
       });
     });
   });
+
+  // ==========================================
+  // AUDIT LOG & REPORT VALIDATION SUITES
+  // ==========================================
+
+  describe('Audit Log & Report Validation Suites', () => {
+    describe('queryAuditLogsSchema', () => {
+      it('applies defaults for page, limit, sortBy, sortOrder', () => {
+        const parsed = queryAuditLogsSchema.parse({});
+        expect(parsed.page).toBe(1);
+        expect(parsed.limit).toBe(20);
+        expect(parsed.sortBy).toBe(AuditLogSortField.CREATED_AT);
+        expect(parsed.sortOrder).toBe(SortOrder.DESC);
+      });
+
+      it('parses action, entity, userId, search filters', () => {
+        const parsed = queryAuditLogsSchema.parse({
+          action: 'CREATE_ITEM',
+          entity: 'Item',
+          userId: validUUID,
+          search: 'ESP32',
+          sortBy: AuditLogSortField.ACTION,
+          sortOrder: SortOrder.ASC,
+        });
+        expect(parsed.action).toBe('CREATE_ITEM');
+        expect(parsed.entity).toBe('Item');
+        expect(parsed.userId).toBe(validUUID);
+        expect(parsed.search).toBe('ESP32');
+        expect(parsed.sortBy).toBe(AuditLogSortField.ACTION);
+        expect(parsed.sortOrder).toBe(SortOrder.ASC);
+      });
+
+      it('rejects invalid userId format', () => {
+        expect(queryAuditLogsSchema.safeParse({ userId: 'not-a-valid-uuid' }).success).toBe(false);
+      });
+    });
+
+    describe('queryReportsSchema', () => {
+      it('validates optional report query parameters', () => {
+        const parsed = queryReportsSchema.parse({
+          categoryId: validUUID,
+          type: ItemType.TRACKED_ASSET,
+        });
+        expect(parsed.categoryId).toBe(validUUID);
+        expect(parsed.type).toBe(ItemType.TRACKED_ASSET);
+      });
+    });
+  });
 });
+
 
 

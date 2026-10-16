@@ -18,6 +18,7 @@ import {
   KitStatus,
   UserSortField,
   KitSortField,
+  AuditLogSortField,
 } from './types';
 
 // Auth validation schemas
@@ -710,6 +711,31 @@ export const queryKitsSchema = z.object({
   limit: z.preprocess((val) => (val !== undefined && val !== '' ? Number(val) : 20), z.number().int().min(1).max(100).default(20)),
 });
 
+// ==========================================
+// AUDIT LOG & REPORT SCHEMAS
+// ==========================================
+
+export const queryAuditLogsSchema = z.object({
+  page: z.preprocess((val) => (val !== undefined && val !== '' ? Number(val) : 1), z.number().int().min(1).default(1)),
+  limit: z.preprocess((val) => (val !== undefined && val !== '' ? Number(val) : 20), z.number().int().min(1).max(100).default(20)),
+  action: z.string().trim().optional(),
+  entity: z.string().trim().optional(),
+  userId: z.string().uuid('ID người dùng không hợp lệ').optional(),
+  startDate: z.string().optional(),
+  endDate: z.string().optional(),
+  search: z.string().trim().optional(),
+  sortBy: z.nativeEnum(AuditLogSortField).default(AuditLogSortField.CREATED_AT),
+  sortOrder: z.nativeEnum(SortOrder).default(SortOrder.DESC),
+});
+
+export const queryReportsSchema = z.object({
+  startDate: z.string().optional(),
+  endDate: z.string().optional(),
+  categoryId: z.string().uuid('ID danh mục không hợp lệ').optional(),
+  locationId: z.string().uuid('ID vị trí không hợp lệ').optional(),
+  type: z.nativeEnum(ItemType).optional(),
+});
+
 // Inferred Types
 export type LoginInput = z.infer<typeof loginSchema>;
 export type CreateUserInput = z.infer<typeof createUserSchema>;
@@ -717,6 +743,8 @@ export type UpdateUserInput = z.infer<typeof updateUserSchema>;
 export type UpdateUserStatusInput = z.infer<typeof updateUserStatusSchema>;
 export type ResetUserPasswordInput = z.infer<typeof resetUserPasswordSchema>;
 export type QueryUsersInput = z.infer<typeof queryUsersSchema>;
+export type QueryAuditLogsInput = z.infer<typeof queryAuditLogsSchema>;
+export type QueryReportsInput = z.infer<typeof queryReportsSchema>;
 
 export type CreateCategoryInput = z.infer<typeof createCategorySchema>;
 export type CreateItemInput = z.infer<typeof createItemSchema>;

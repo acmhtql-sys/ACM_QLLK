@@ -82,6 +82,12 @@ export enum KitSortField {
   UPDATED_AT = 'updatedAt',
 }
 
+export enum AuditLogSortField {
+  CREATED_AT = 'createdAt',
+  ACTION = 'action',
+  ENTITY = 'entity',
+}
+
 export enum SortOrder {
   ASC = 'asc',
   DESC = 'desc',
@@ -540,5 +546,136 @@ export interface KitResponse {
   totalItems: number;
   createdAt: string | Date;
   updatedAt: string | Date;
+}
+
+// Audit Log Response DTO
+export interface AuditLogResponse {
+  id: string;
+  userId?: string | null;
+  user?: {
+    id: string;
+    fullName: string;
+    email: string;
+    role?: UserRole;
+  } | null;
+  action: string;
+  entity: string;
+  entityId: string;
+  oldValue?: any;
+  newValue?: any;
+  ipAddress?: string | null;
+  userAgent?: string | null;
+  createdAt: string | Date;
+}
+
+// Dashboard KPI Metrics DTO
+export interface DashboardKpisResponse {
+  totalItems: number;
+  totalOnHand: number;
+  totalAvailable: number;
+  totalReserved: number;
+  totalBorrowed: number;
+  totalQuarantined: number;
+  totalKitAllocated: number;
+  activeBorrows: number;
+  pendingApprovalBorrows: number;
+  overdueBorrows: number;
+  lowStockCount: number;
+  outOfStockCount: number;
+  totalKits: number;
+  activeKits: number;
+}
+
+// Dashboard Distribution Chart Item
+export interface DashboardDistributionItem {
+  name: string;
+  value: number;
+  color?: string;
+}
+
+// Dashboard Monthly Trend Point
+export interface DashboardMonthlyTrend {
+  month: string;
+  imports: number;
+  exports: number;
+  borrows: number;
+}
+
+// Complete Dashboard Summary Response
+export interface DashboardSummaryResponse {
+  kpis: DashboardKpisResponse;
+  distribution: DashboardDistributionItem[];
+  monthlyTrends: DashboardMonthlyTrend[];
+}
+
+// Inventory Valuation & Breakdown Report Item
+export interface InventoryReportItem {
+  id: string;
+  code: string;
+  name: string;
+  unit: string;
+  type: ItemType;
+  categoryName: string;
+  onHand: number;
+  reserved: number;
+  quarantined: number;
+  kitAllocated: number;
+  borrowed: number;
+  available: number;
+  minStockAlert: number;
+  stockStatus: StockStatus;
+}
+
+// Borrow & Return Operational Report Summary
+export interface BorrowReturnReportSummary {
+  totalRequests: number;
+  approvedCount: number;
+  handedOverCount: number;
+  returnedCount: number;
+  partiallyReturnedCount: number;
+  rejectedCount: number;
+  cancelledCount: number;
+  overdueCount: number;
+  returnRatePercent: number;
+  damagedOrLostCount: number;
+}
+
+// Low & Out of Stock Critical Alert Item
+export interface LowStockAlertItem {
+  id: string;
+  code: string;
+  name: string;
+  unit: string;
+  categoryName: string;
+  onHand: number;
+  available: number;
+  minStockAlert: number;
+  stockStatus: StockStatus;
+  urgencyRatio: number;
+}
+
+// Overdue Loan Item Detail
+export interface OverdueLoanItem {
+  id: string;
+  requestNumber: string;
+  borrowerName?: string;
+  borrowerEmail?: string;
+  borrowerPhone?: string | null;
+  purpose?: string | null;
+  expectedBorrowDate: string | Date;
+  expectedReturnDate: string | Date;
+  daysOverdue: number;
+  items: {
+    code?: string;
+    name?: string;
+    quantity: number;
+    returnedQuantity: number;
+  }[];
+}
+
+// Complete Borrow & Return Report Response
+export interface BorrowReturnReportResponse {
+  summary: BorrowReturnReportSummary;
+  overdueList: OverdueLoanItem[];
 }
 

@@ -12,6 +12,7 @@ import { StockTransactionsPage } from '../pages/StockTransactionsPage';
 import { BorrowReturnPage } from '../pages/BorrowReturnPage';
 import { UsersPage } from '../pages/UsersPage';
 import { ReportsPage } from '../pages/ReportsPage';
+import { AuditLogsPage } from '../pages/AuditLogsPage';
 import { SettingsPage } from '../pages/SettingsPage';
 
 // Protected Route wrapper
@@ -48,6 +49,7 @@ export const App: React.FC = () => {
           <Route path="borrow-return" element={<BorrowReturnPage />} />
           <Route path="users" element={<UsersPage />} />
           <Route path="reports" element={<ReportsPage />} />
+          <Route path="audit-logs" element={<AuditLogsPage />} />
           <Route path="settings" element={<SettingsPage />} />
         </Route>
 

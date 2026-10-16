@@ -10,6 +10,7 @@ import {
   ClipboardList,
   Users,
   BarChart3,
+  History,
   Settings,
   ShieldCheck,
   X,
@@ -30,6 +31,7 @@ const navItems = [
   { name: 'Mượn & Trả (Borrow & Return)', path: '/borrow-return', icon: ClipboardList },
   { name: 'Người dùng (Users)', path: '/users', icon: Users },
   { name: 'Báo cáo & Thống kê', path: '/reports', icon: BarChart3 },
+  { name: 'Nhật ký kiểm toán (Audit)', path: '/audit-logs', icon: History },
   { name: 'Cài đặt hệ thống', path: '/settings', icon: Settings },
 ];
 
