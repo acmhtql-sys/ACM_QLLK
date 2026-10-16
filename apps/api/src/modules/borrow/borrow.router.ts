@@ -2,12 +2,15 @@ import { Router, Request, Response, NextFunction } from 'express';
 import { prisma } from '../../config/database';
 import { sendSuccess } from '../../shared/response';
 import { authenticate } from '../../middleware/auth';
+import { UserRole } from '@prisma/client';
 
 export const borrowRouter = Router();
 
-borrowRouter.get('/', authenticate, async (_req: Request, res: Response, next: NextFunction) => {
+borrowRouter.get('/', authenticate, async (req: Request, res: Response, next: NextFunction) => {
   try {
     const borrows = await prisma.borrowRequest.findMany({
+      // Students may view only their own requests; authorized staff can view all requests.
+      where: req.user?.role === UserRole.STUDENT ? { borrowerId: req.user.id } : undefined,
       include: {
         borrower: { select: { fullName: true, email: true } },
         details: {
