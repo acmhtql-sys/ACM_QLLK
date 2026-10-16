@@ -45,16 +45,21 @@ authRouter.post('/login', loginRateLimiter, async (req: Request, res: Response, 
 
     const isPasswordValid = await bcrypt.compare(password, user.passwordHash);
     if (!isPasswordValid) {
-      const nextFailedAttempts = (user.failedLoginAttempts || 0) + 1;
-      const willLock = nextFailedAttempts >= MAX_FAILED_LOGIN_ATTEMPTS;
-
-      await prisma.user.update({
+      // Use a database-side increment to avoid lost updates when several failed
+      // attempts arrive concurrently for the same account.
+      const updatedUser = await prisma.user.update({
         where: { id: user.id },
-        data: {
-          failedLoginAttempts: nextFailedAttempts,
-          isLocked: willLock ? true : user.isLocked,
-        },
+        data: { failedLoginAttempts: { increment: 1 } },
+        select: { failedLoginAttempts: true },
       });
+      const willLock = updatedUser.failedLoginAttempts >= MAX_FAILED_LOGIN_ATTEMPTS;
+
+      if (willLock) {
+        await prisma.user.update({
+          where: { id: user.id },
+          data: { isLocked: true },
+        });
+      }
 
       if (willLock) {
         throw new AppError(
