@@ -7,6 +7,8 @@ import {
   PaginationMeta,
   computeStockBreakdown,
   calculateAvailableStock,
+  getItemStockStatus,
+  StockStatus,
   StockBalanceSortField,
   SortOrder,
 } from '@acm/shared';
@@ -203,9 +205,18 @@ export class InventoryService {
     }
 
     let lowStockItemCount = 0;
+    let outOfStockItemCount = 0;
+    let inStockItemCount = 0;
+
     for (const [, stats] of itemAvailableMap) {
-      if (stats.available < stats.minStockAlert) {
+      const status = getItemStockStatus(stats.available, stats.minStockAlert);
+      if (status === StockStatus.OUT_OF_STOCK) {
+        outOfStockItemCount++;
+        lowStockItemCount++; // Included in low stock count for backwards compatibility
+      } else if (status === StockStatus.LOW_STOCK) {
         lowStockItemCount++;
+      } else {
+        inStockItemCount++;
       }
     }
 
@@ -217,6 +228,8 @@ export class InventoryService {
       totalBorrowed,
       totalAvailable,
       lowStockItemCount,
+      outOfStockItemCount,
+      inStockItemCount,
       totalLocations,
       totalItems,
     };

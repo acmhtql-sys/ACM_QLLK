@@ -16,6 +16,7 @@ import {
   ChevronLeft,
   ChevronRight,
   RefreshCw,
+  Trash2,
 } from 'lucide-react';
 import { StatusBadge } from '../components/StatusBadge';
 import { ToastContainer, ToastMessage } from '../components/Toast';
@@ -27,6 +28,7 @@ import { useAuth } from '../hooks/useAuth';
 import {
   ItemResponse,
   ItemType,
+  StockStatus,
   ItemSortField,
   SortOrder,
   PaginationMeta,
@@ -58,6 +60,7 @@ export const ItemsPage: React.FC = () => {
   const [selectedCategory, setSelectedCategory] = useState<string>('');
   const [selectedType, setSelectedType] = useState<string>('');
   const [selectedStatus, setSelectedStatus] = useState<string>('all'); // 'all', 'active', 'inactive'
+  const [selectedStockStatus, setSelectedStockStatus] = useState<string>('all'); // 'all', IN_STOCK, LOW_STOCK, OUT_OF_STOCK
   const [isLowStockFilter, setIsLowStockFilter] = useState<boolean>(false);
 
   // Sorting and Pagination
@@ -133,6 +136,11 @@ export const ItemsPage: React.FC = () => {
         params.append('isActive', 'false');
       }
 
+      // Stock status filter
+      if (selectedStockStatus !== 'all') {
+        params.append('stockStatus', selectedStockStatus);
+      }
+
       if (isLowStockFilter) {
         params.append('isLowStock', 'true');
       }
@@ -161,6 +169,7 @@ export const ItemsPage: React.FC = () => {
     selectedCategory,
     selectedType,
     selectedStatus,
+    selectedStockStatus,
     isLowStockFilter,
     sortBy,
     sortOrder,
@@ -180,10 +189,30 @@ export const ItemsPage: React.FC = () => {
     setSelectedCategory('');
     setSelectedType('');
     setSelectedStatus('all');
+    setSelectedStockStatus('all');
     setIsLowStockFilter(false);
     setSortBy(ItemSortField.CREATED_AT);
     setSortOrder(SortOrder.DESC);
     setPage(1);
+  };
+
+  // Safe item deletion handler
+  const handleDeleteItem = async (item: ItemResponse) => {
+    const confirmed = window.confirm(
+      `Bạn có chắc chắn muốn xóa linh kiện "${item.name}" (SKU: ${item.code})?\n\nLưu ý: Chỉ linh kiện có tồn kho bằng 0 và chưa từng phát sinh giao dịch xuất/nhập/mượn mới có thể xóa.`
+    );
+    if (!confirmed) return;
+
+    try {
+      const res = await apiClient.delete(`/items/${item.id}`);
+      if (res.data?.success) {
+        addToast('success', 'Xóa thành công', `Đã xóa linh kiện: ${item.code}`);
+        fetchItems();
+      }
+    } catch (err: any) {
+      const msg = err.response?.data?.message || 'Không thể xóa linh kiện';
+      addToast('error', 'Lỗi xóa linh kiện', msg);
+    }
   };
 
   // Header click for sorting
@@ -325,6 +354,21 @@ export const ItemsPage: React.FC = () => {
             </select>
           )}
 
+          {/* Stock Status Filter */}
+          <select
+            value={selectedStockStatus}
+            onChange={(e) => {
+              setSelectedStockStatus(e.target.value);
+              setPage(1);
+            }}
+            className="rounded-lg border border-slate-200 bg-slate-50/50 py-1 px-2.5 text-xs text-slate-700 focus:bg-white focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+          >
+            <option value="all">Tất cả tình trạng tồn</option>
+            <option value={StockStatus.IN_STOCK}>Sẵn sàng (IN_STOCK)</option>
+            <option value={StockStatus.LOW_STOCK}>Sắp hết (LOW_STOCK)</option>
+            <option value={StockStatus.OUT_OF_STOCK}>Đã hết (OUT_OF_STOCK)</option>
+          </select>
+
           {/* Low Stock Toggle */}
           <button
             type="button"
@@ -343,7 +387,7 @@ export const ItemsPage: React.FC = () => {
           </button>
 
           {/* Reset Filters Button */}
-          {(debouncedSearch || selectedCategory || selectedType || selectedStatus !== 'all' || isLowStockFilter) && (
+          {(debouncedSearch || selectedCategory || selectedType || selectedStatus !== 'all' || selectedStockStatus !== 'all' || isLowStockFilter) && (
             <button
               onClick={handleResetFilters}
               className="inline-flex items-center space-x-1 text-xs text-rose-600 hover:text-rose-700 ml-auto font-medium"
@@ -384,6 +428,7 @@ export const ItemsPage: React.FC = () => {
                 >
                   Ngưỡng {renderSortIcon(ItemSortField.MIN_STOCK_ALERT)}
                 </th>
+                <th className="py-3 px-4 text-center">Tồn kho</th>
                 <th className="py-3 px-4 text-center">Trạng thái</th>
                 <th className="py-3 px-4 text-center">Thao tác</th>
               </tr>
@@ -391,7 +436,7 @@ export const ItemsPage: React.FC = () => {
             <tbody className="divide-y divide-slate-100 text-slate-700">
               {loading ? (
                 <tr>
-                  <td colSpan={10} className="py-12 text-center text-slate-400">
+                  <td colSpan={11} className="py-12 text-center text-slate-400">
                     <div className="flex flex-col items-center justify-center space-y-2">
                       <div className="h-6 w-6 animate-spin rounded-full border-2 border-blue-600 border-t-transparent" />
                       <span>Đang tải danh sách linh kiện...</span>
@@ -400,7 +445,7 @@ export const ItemsPage: React.FC = () => {
                 </tr>
               ) : error ? (
                 <tr>
-                  <td colSpan={10} className="py-12 text-center text-rose-500">
+                  <td colSpan={11} className="py-12 text-center text-rose-500">
                     <div className="flex flex-col items-center justify-center space-y-2">
                       <AlertTriangle className="h-6 w-6" />
                       <span>{error}</span>
@@ -415,7 +460,7 @@ export const ItemsPage: React.FC = () => {
                 </tr>
               ) : items.length === 0 ? (
                 <tr>
-                  <td colSpan={10} className="py-12 text-center text-slate-400">
+                  <td colSpan={11} className="py-12 text-center text-slate-400">
                     <div className="flex flex-col items-center justify-center space-y-2">
                       <Layers className="h-8 w-8 text-slate-300" />
                       <span className="font-medium text-slate-600">Không tìm thấy linh kiện nào</span>
@@ -491,6 +536,11 @@ export const ItemsPage: React.FC = () => {
                       &lt; {item.minStockAlert}
                     </td>
 
+                    {/* Stock Status */}
+                    <td className="py-3 px-4 text-center">
+                      <StatusBadge status={item.stockStatus} variant="stockStatus" />
+                    </td>
+
                     {/* Active Status */}
                     <td className="py-3 px-4 text-center">
                       <StatusBadge
@@ -544,6 +594,17 @@ export const ItemsPage: React.FC = () => {
                             }`}
                           >
                             <Power className="h-3.5 w-3.5" />
+                          </button>
+                        )}
+
+                        {/* Delete (Admin/Manager only) */}
+                        {canManage && (
+                          <button
+                            onClick={() => handleDeleteItem(item)}
+                            title="Xóa linh kiện (nếu tồn kho bằng 0 và chưa có giao dịch)"
+                            className="rounded-md p-1.5 text-slate-400 hover:bg-rose-50 hover:text-rose-600 transition-colors"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
                           </button>
                         )}
                       </div>

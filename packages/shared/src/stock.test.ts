@@ -8,11 +8,12 @@ import {
   calculateTransferDelta,
   calculateAdjustmentDelta,
   isLowStock,
+  getItemStockStatus,
   buildLocationTree,
   flattenLocationTree,
   isDescendantLocation,
 } from './stock';
-import { StockBalanceValues, LocationType, LocationResponse } from './types';
+import { StockBalanceValues, LocationType, LocationResponse, StockStatus } from './types';
 
 describe('ACM Inventory Balance Invariant & Domain Logic Tests', () => {
   it('correctly calculates Available = OnHand - Reserved - Quarantined - KitAllocated', () => {
@@ -167,6 +168,35 @@ describe('ACM Inventory Balance Invariant & Domain Logic Tests', () => {
       expect(() => isLowStock(Infinity, 5)).toThrow(/non-negative finite number/);
       expect(() => isLowStock(5, Infinity)).toThrow(/non-negative finite number/);
       expect(() => isLowStock(NaN, 5)).toThrow(/non-negative finite number/);
+    });
+  });
+
+  describe('getItemStockStatus business rule (OUT_OF_STOCK, LOW_STOCK, IN_STOCK)', () => {
+    it('returns OUT_OF_STOCK when available is 0 or negative', () => {
+      expect(getItemStockStatus(0, 5)).toBe(StockStatus.OUT_OF_STOCK);
+      expect(getItemStockStatus(0, 0)).toBe(StockStatus.OUT_OF_STOCK);
+      expect(getItemStockStatus(0, 10)).toBe(StockStatus.OUT_OF_STOCK);
+    });
+
+    it('returns LOW_STOCK when available > 0 and available < minStockAlert', () => {
+      expect(getItemStockStatus(4, 5)).toBe(StockStatus.LOW_STOCK);
+      expect(getItemStockStatus(1, 5)).toBe(StockStatus.LOW_STOCK);
+      expect(getItemStockStatus(9, 10)).toBe(StockStatus.LOW_STOCK);
+    });
+
+    it('returns IN_STOCK when available >= minStockAlert and available > 0', () => {
+      expect(getItemStockStatus(5, 5)).toBe(StockStatus.IN_STOCK);
+      expect(getItemStockStatus(10, 5)).toBe(StockStatus.IN_STOCK);
+      expect(getItemStockStatus(1, 0)).toBe(StockStatus.IN_STOCK);
+      expect(getItemStockStatus(100, 10)).toBe(StockStatus.IN_STOCK);
+    });
+
+    it('throws when inputs are invalid, negative, or non-finite', () => {
+      expect(() => getItemStockStatus(-1, 5)).toThrow(/non-negative finite number/);
+      expect(() => getItemStockStatus(5, -1)).toThrow(/non-negative finite number/);
+      expect(() => getItemStockStatus(Infinity, 5)).toThrow(/non-negative finite number/);
+      expect(() => getItemStockStatus(5, Infinity)).toThrow(/non-negative finite number/);
+      expect(() => getItemStockStatus(NaN, 5)).toThrow(/non-negative finite number/);
     });
   });
 

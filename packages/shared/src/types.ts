@@ -138,6 +138,13 @@ export interface ItemLocationBalance {
   available: number;
 }
 
+// Stock Status Enum
+export enum StockStatus {
+  IN_STOCK = 'IN_STOCK',
+  LOW_STOCK = 'LOW_STOCK',
+  OUT_OF_STOCK = 'OUT_OF_STOCK',
+}
+
 // Complete Item Response DTO
 export interface ItemResponse {
   id: string;
@@ -159,6 +166,7 @@ export interface ItemResponse {
   totalBorrowed: number;
   available: number;
   isLowStock: boolean;
+  stockStatus: StockStatus;
   stockBalances?: ItemLocationBalance[];
   createdAt: string | Date;
   updatedAt: string | Date;
@@ -236,6 +244,8 @@ export interface InventorySummaryResponse {
   totalBorrowed: number;
   totalAvailable: number;
   lowStockItemCount: number;
+  outOfStockItemCount?: number;
+  inStockItemCount?: number;
   totalLocations: number;
   totalItems: number;
 }

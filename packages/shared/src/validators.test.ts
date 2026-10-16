@@ -32,6 +32,7 @@ import {
   StockTransactionSortField,
   StockMovementSortField,
   StockBalanceSortField,
+  StockStatus,
 } from './types';
 
 describe('Shared Validators Tests', () => {
@@ -97,6 +98,36 @@ describe('Shared Validators Tests', () => {
           categoryId: validUUID,
         })
       ).toThrow();
+    });
+
+    it('validates SKU format: allows alphanumeric, hyphen, underscore, dot; rejects invalid symbols and >50 chars', () => {
+      const validSKU = createItemSchema.parse({
+        code: 'ESP32_WROOM-32.V1',
+        name: 'ESP32 Module',
+        unit: 'cái',
+        categoryId: validUUID,
+      });
+      expect(validSKU.code).toBe('ESP32_WROOM-32.V1');
+
+      // Reject special symbols
+      expect(() =>
+        createItemSchema.parse({
+          code: 'INVALID/SKU@123',
+          name: 'ESP32 Module',
+          unit: 'cái',
+          categoryId: validUUID,
+        })
+      ).toThrow(/chữ cái, số, dấu gạch ngang/);
+
+      // Reject > 50 chars
+      expect(() =>
+        createItemSchema.parse({
+          code: 'A'.repeat(51),
+          name: 'ESP32 Module',
+          unit: 'cái',
+          categoryId: validUUID,
+        })
+      ).toThrow(/tối đa 50 ký tự/);
     });
 
     it('rejects unexpected / disallowed keys including stock quantities (strict)', () => {
@@ -274,6 +305,20 @@ describe('Shared Validators Tests', () => {
     it('enforces limit constraints between 1 and 100', () => {
       expect(() => queryItemsSchema.parse({ limit: '0' })).toThrow();
       expect(() => queryItemsSchema.parse({ limit: '101' })).toThrow();
+    });
+
+    it('parses stockStatus and barcode filters correctly', () => {
+      const inStock = queryItemsSchema.parse({ stockStatus: StockStatus.IN_STOCK, barcode: 'BC-999' });
+      expect(inStock.stockStatus).toBe(StockStatus.IN_STOCK);
+      expect(inStock.barcode).toBe('BC-999');
+
+      const lowStock = queryItemsSchema.parse({ stockStatus: 'LOW_STOCK' });
+      expect(lowStock.stockStatus).toBe(StockStatus.LOW_STOCK);
+
+      const outOfStock = queryItemsSchema.parse({ stockStatus: 'OUT_OF_STOCK' });
+      expect(outOfStock.stockStatus).toBe(StockStatus.OUT_OF_STOCK);
+
+      expect(() => queryItemsSchema.parse({ stockStatus: 'INVALID_STATUS' })).toThrow();
     });
   });
 

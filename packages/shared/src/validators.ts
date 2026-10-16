@@ -13,6 +13,7 @@ import {
   StockBalanceSortField,
   BorrowStatus,
   AssetCondition,
+  StockStatus,
 } from './types';
 
 // Auth validation schemas
@@ -50,7 +51,12 @@ export const booleanQueryParam = z.preprocess((val) => {
 // Item create schema
 export const createItemSchema = z
   .object({
-    code: z.string().trim().min(2, 'Mã linh kiện/thiết bị phải có ít nhất 2 ký tự'),
+    code: z
+      .string()
+      .trim()
+      .min(2, 'Mã linh kiện/thiết bị phải có ít nhất 2 ký tự')
+      .max(50, 'Mã linh kiện/thiết bị tối đa 50 ký tự')
+      .regex(/^[A-Za-z0-9_.\-]+$/, 'Mã linh kiện chỉ được chứa chữ cái, số, dấu gạch ngang (-), gạch dưới (_) và dấu chấm (.)'),
     name: z.string().trim().min(2, 'Tên linh kiện/thiết bị phải có ít nhất 2 ký tự'),
     description: z.string().optional().nullable(),
     unit: z.string().trim().min(1, 'Đơn vị tính là bắt buộc'),
@@ -64,7 +70,13 @@ export const createItemSchema = z
 // Item update schema (Stock is NOT editable directly via Items API; empty object is rejected)
 export const updateItemSchema = z
   .object({
-    code: z.string().trim().min(2, 'Mã linh kiện/thiết bị phải có ít nhất 2 ký tự').optional(),
+    code: z
+      .string()
+      .trim()
+      .min(2, 'Mã linh kiện/thiết bị phải có ít nhất 2 ký tự')
+      .max(50, 'Mã linh kiện/thiết bị tối đa 50 ký tự')
+      .regex(/^[A-Za-z0-9_.\-]+$/, 'Mã linh kiện chỉ được chứa chữ cái, số, dấu gạch ngang (-), gạch dưới (_) và dấu chấm (.)')
+      .optional(),
     name: z.string().trim().min(2, 'Tên linh kiện/thiết bị phải có ít nhất 2 ký tự').optional(),
     description: z.string().optional().nullable(),
     unit: z.string().trim().min(1, 'Đơn vị tính là bắt buộc').optional(),
@@ -94,6 +106,8 @@ export const queryItemsSchema = z
     type: z.nativeEnum(ItemType).optional(),
     isActive: booleanQueryParam,
     isLowStock: booleanQueryParam,
+    stockStatus: z.nativeEnum(StockStatus).optional(),
+    barcode: z.string().trim().optional(),
     sortBy: z.nativeEnum(ItemSortField).default(ItemSortField.CREATED_AT),
     sortOrder: z.nativeEnum(SortOrder).default(SortOrder.DESC),
     page: z.preprocess((val) => (val !== undefined && val !== '' ? Number(val) : 1), z.number().int().min(1).default(1)),

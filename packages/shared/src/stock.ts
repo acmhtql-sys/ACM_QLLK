@@ -1,4 +1,4 @@
-import { StockBalanceValues, StockBreakdown, LocationResponse, LocationNode } from './types';
+import { StockBalanceValues, StockBreakdown, LocationResponse, LocationNode, StockStatus } from './types';
 
 /**
  * Calculates Available Stock based on ACM Business Rules:
@@ -176,6 +176,39 @@ export function isLowStock(available: number, minStockAlert: number): boolean {
     throw new Error(`minStockAlert must be a non-negative finite number (received: ${minStockAlert})`);
   }
   return available < minStockAlert;
+}
+
+/**
+ * Determines item stock status based on available stock and configured minStockAlert threshold:
+ * - OUT_OF_STOCK (Đã hết): available <= 0
+ * - LOW_STOCK (Sắp hết): 0 < available < minStockAlert (when minStockAlert > 0)
+ * - IN_STOCK (Sẵn sàng): available >= minStockAlert and available > 0
+ */
+export function getItemStockStatus(available: number, minStockAlert: number): StockStatus {
+  if (
+    typeof available !== 'number' ||
+    isNaN(available) ||
+    !Number.isFinite(available) ||
+    available < 0
+  ) {
+    throw new Error(`Available quantity must be a non-negative finite number (received: ${available})`);
+  }
+  if (
+    typeof minStockAlert !== 'number' ||
+    isNaN(minStockAlert) ||
+    !Number.isFinite(minStockAlert) ||
+    minStockAlert < 0
+  ) {
+    throw new Error(`minStockAlert must be a non-negative finite number (received: ${minStockAlert})`);
+  }
+
+  if (available <= 0) {
+    return StockStatus.OUT_OF_STOCK;
+  }
+  if (isLowStock(available, minStockAlert)) {
+    return StockStatus.LOW_STOCK;
+  }
+  return StockStatus.IN_STOCK;
 }
 
 /**
