@@ -6,7 +6,7 @@ import { sendSuccess } from '../../shared/response';
 import { AppError } from '../../shared/AppError';
 import { authenticate } from '../../middleware/auth';
 import { authorizeRoles } from '../../middleware/rbac';
-import { UserRole } from '@prisma/client';
+import { Prisma, UserRole } from '@prisma/client';
 
 export const usersRouter = Router();
 
@@ -17,10 +17,8 @@ const publicUserSelect = {
   role: true,
   studentOrStaffId: true,
   department: true,
-  phoneNumber: true,
   isActive: true,
   isLocked: true,
-  failedLoginAttempts: true,
   createdAt: true,
   updatedAt: true,
 } as const;
@@ -135,7 +133,10 @@ usersRouter.put(
       }
 
       const data = parsed.data;
-      const updateData: Record<string, unknown> = { ...data };
+      if (idParsed.data === req.user?.id && data.role && data.role !== UserRole.ADMIN) {
+        throw new AppError('Không thể tự hạ quyền quản trị của chính mình', 400);
+      }
+      const updateData: Prisma.UserUpdateInput = { ...data };
       if (data.email) updateData.email = data.email.toLowerCase();
       if (data.role) updateData.roleId = await findRoleId(data.role);
 
