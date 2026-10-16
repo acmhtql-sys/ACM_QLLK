@@ -1,10 +1,11 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { prisma } from '../../config/database';
 import { sendSuccess } from '../../shared/response';
+import { authenticate } from '../../middleware/auth';
 
 export const borrowRouter = Router();
 
-borrowRouter.get('/', async (_req: Request, res: Response, next: NextFunction) => {
+borrowRouter.get('/', authenticate, async (_req: Request, res: Response, next: NextFunction) => {
   try {
     const borrows = await prisma.borrowRequest.findMany({
       include: {

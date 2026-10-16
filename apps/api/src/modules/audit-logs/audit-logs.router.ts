@@ -1,6 +1,9 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { prisma } from '../../config/database';
 import { sendSuccess } from '../../shared/response';
+import { authenticate } from '../../middleware/auth';
+import { authorizeRoles } from '../../middleware/rbac';
+import { UserRole } from '@prisma/client';
 
 export const auditLogsRouter = Router();
 
@@ -34,7 +37,11 @@ const MOCK_AUDIT_LOGS = [
   },
 ];
 
-auditLogsRouter.get('/', async (_req: Request, res: Response, next: NextFunction) => {
+auditLogsRouter.get(
+  '/',
+  authenticate,
+  authorizeRoles(UserRole.ADMIN),
+  async (_req: Request, res: Response, next: NextFunction) => {
   try {
     try {
       const logs = await prisma.auditLog.findMany({

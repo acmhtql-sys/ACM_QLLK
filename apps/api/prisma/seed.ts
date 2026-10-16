@@ -3,7 +3,72 @@ import * as bcrypt from 'bcryptjs';
 
 const prisma = new PrismaClient();
 
+/**
+ * Strict Environment Guard for Demo Seeding.
+ * Restricts seed execution strictly to authorized local development environments.
+ * Prevents accidental execution in staging, production, or against remote cloud databases (e.g. Supabase).
+ */
+export function validateSeedEnvironment(
+  databaseUrl?: string,
+  nodeEnv?: string
+): { allowed: boolean; reason?: string } {
+  const envName = (nodeEnv || process.env.NODE_ENV || 'development').toLowerCase();
+  if (envName === 'production' || envName === 'staging') {
+    return {
+      allowed: false,
+      reason: `Thao tác seed dữ liệu demo bị từ chối tuyệt đối trong môi trường "${envName}" nhằm bảo vệ toàn vẹn dữ liệu.`,
+    };
+  }
+
+  const url = databaseUrl || process.env.DATABASE_URL || '';
+  if (!url) {
+    return {
+      allowed: false,
+      reason: 'DATABASE_URL không được định nghĩa.',
+    };
+  }
+
+  // Detect remote cloud databases
+  const remoteCloudPatterns = [
+    'supabase.co',
+    'pooler.supabase.com',
+    'amazonaws.com',
+    'render.com',
+    'neon.tech',
+    'cockroachlabs.cloud',
+  ];
+
+  const isRemoteCloud = remoteCloudPatterns.some((pattern) => url.toLowerCase().includes(pattern));
+  if (isRemoteCloud && process.env.ALLOW_REMOTE_SEED !== 'true') {
+    return {
+      allowed: false,
+      reason: `DATABASE_URL nhắm đến cơ sở dữ liệu Cloud từ xa (${url.split('@')[1] || 'remote host'}). Seed dữ liệu demo chỉ được phép chạy trên máy tính cục bộ (localhost/127.0.0.1).`,
+    };
+  }
+
+  const isLocalHost =
+    url.includes('localhost') ||
+    url.includes('127.0.0.1') ||
+    url.includes('host.docker.internal') ||
+    url.includes('acm_inventory');
+
+  if (!isLocalHost && process.env.ALLOW_REMOTE_SEED !== 'true') {
+    return {
+      allowed: false,
+      reason: 'DATABASE_URL không trỏ đến cơ sở dữ liệu cục bộ hợp lệ (localhost / 127.0.0.1).',
+    };
+  }
+
+  return { allowed: true };
+}
+
 async function main() {
+  const guard = validateSeedEnvironment(process.env.DATABASE_URL, process.env.NODE_ENV);
+  if (!guard.allowed) {
+    console.error(`\n❌ [SEED GUARD REJECTION] ${guard.reason}\n`);
+    process.exit(1);
+  }
+
   console.log('🌱 Starting ACM Database Seeding...');
 
   // 1. Roles
@@ -308,11 +373,13 @@ async function main() {
   console.log('🎉 Seeding successfully completed!');
 }
 
-main()
-  .catch((e) => {
-    console.error('❌ Seeding error:', e);
-    process.exit(1);
-  })
-  .finally(async () => {
-    await prisma.$disconnect();
-  });
+if (require.main === module || (process.argv[1] && process.argv[1].includes('seed'))) {
+  main()
+    .catch((e) => {
+      console.error('❌ Seeding error:', e);
+      process.exit(1);
+    })
+    .finally(async () => {
+      await prisma.$disconnect();
+    });
+}

@@ -6,15 +6,19 @@ import { env } from '../../config/env';
 import { AppError } from '../../shared/AppError';
 import { sendSuccess } from '../../shared/response';
 import { authenticate } from '../../middleware/auth';
+import { loginRateLimiter } from '../../middleware/rateLimiter';
 import { loginSchema } from '@acm/shared';
 
 export const authRouter = Router();
 
+export const MAX_FAILED_LOGIN_ATTEMPTS = 5;
+
 /**
  * POST /api/v1/auth/login
- * Authenticates user credentials directly from PostgreSQL Database
+ * Authenticates user credentials directly from PostgreSQL Database.
+ * Protected by IP-level Rate Limiting and consecutive failed-login Account Lockout.
  */
-authRouter.post('/login', async (req: Request, res: Response, next: NextFunction) => {
+authRouter.post('/login', loginRateLimiter, async (req: Request, res: Response, next: NextFunction) => {
   try {
     const parsed = loginSchema.safeParse(req.body);
     if (!parsed.success) {
@@ -31,13 +35,43 @@ authRouter.post('/login', async (req: Request, res: Response, next: NextFunction
       throw new AppError('Email hoặc mật khẩu không chính xác', 401);
     }
 
-    if (!user.isActive || user.isLocked) {
-      throw new AppError('Tài khoản đã bị vô hiệu hóa hoặc tạm khóa', 403);
+    if (!user.isActive) {
+      throw new AppError('Tài khoản đã bị vô hiệu hóa, vui lòng liên hệ quản trị viên', 403);
+    }
+
+    if (user.isLocked) {
+      throw new AppError('Tài khoản đã bị tạm khóa do vi phạm chính sách bảo mật', 403);
     }
 
     const isPasswordValid = await bcrypt.compare(password, user.passwordHash);
     if (!isPasswordValid) {
+      const nextFailedAttempts = (user.failedLoginAttempts || 0) + 1;
+      const willLock = nextFailedAttempts >= MAX_FAILED_LOGIN_ATTEMPTS;
+
+      await prisma.user.update({
+        where: { id: user.id },
+        data: {
+          failedLoginAttempts: nextFailedAttempts,
+          isLocked: willLock ? true : user.isLocked,
+        },
+      });
+
+      if (willLock) {
+        throw new AppError(
+          `Tài khoản đã bị tạm khóa do nhập sai mật khẩu quá ${MAX_FAILED_LOGIN_ATTEMPTS} lần liên tiếp`,
+          403
+        );
+      }
+
       throw new AppError('Email hoặc mật khẩu không chính xác', 401);
+    }
+
+    // Reset failed login attempts on successful authentication
+    if (user.failedLoginAttempts > 0) {
+      await prisma.user.update({
+        where: { id: user.id },
+        data: { failedLoginAttempts: 0 },
+      });
     }
 
     const tokenPayload = {
@@ -71,7 +105,9 @@ authRouter.post('/login', async (req: Request, res: Response, next: NextFunction
 
 /**
  * GET /api/v1/auth/me
+ * Returns current authenticated user profile retrieved and verified from database
  */
 authRouter.get('/me', authenticate, (req: Request, res: Response) => {
   sendSuccess(res, { user: req.user }, 'Thông tin tài khoản hiện tại');
 });
+
