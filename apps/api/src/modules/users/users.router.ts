@@ -136,7 +136,7 @@ usersRouter.put(
       if (idParsed.data === req.user?.id && data.role && data.role !== UserRole.ADMIN) {
         throw new AppError('Không thể tự hạ quyền quản trị của chính mình', 400);
       }
-      const updateData: Prisma.UserUpdateInput = { ...data };
+      const updateData: Prisma.UserUncheckedUpdateInput = { ...data };
       if (data.email) updateData.email = data.email.toLowerCase();
       if (data.role) updateData.roleId = await findRoleId(data.role);
 
