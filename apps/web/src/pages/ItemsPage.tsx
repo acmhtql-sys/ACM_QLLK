@@ -23,6 +23,7 @@ import { ToastContainer, ToastMessage } from '../components/Toast';
 import { ItemFormModal } from '../components/items/ItemFormModal';
 import { ItemDetailModal } from '../components/items/ItemDetailModal';
 import { ItemStatusModal } from '../components/items/ItemStatusModal';
+import { ConfirmationModal } from '../components/common/ConfirmationModal';
 import { apiClient } from '../services/api';
 import { useAuth } from '../hooks/useAuth';
 import {
@@ -79,6 +80,11 @@ export const ItemsPage: React.FC = () => {
 
   const [statusModalOpen, setStatusModalOpen] = useState(false);
   const [selectedItemForStatus, setSelectedItemForStatus] = useState<ItemResponse | null>(null);
+
+  // Delete confirmation modal state
+  const [deleteModalOpen, setDeleteModalOpen] = useState(false);
+  const [itemToDelete, setItemToDelete] = useState<ItemResponse | null>(null);
+  const [deletingItem, setDeletingItem] = useState(false);
 
   // Toast notifications state
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
@@ -196,22 +202,28 @@ export const ItemsPage: React.FC = () => {
     setPage(1);
   };
 
-  // Safe item deletion handler
-  const handleDeleteItem = async (item: ItemResponse) => {
-    const confirmed = window.confirm(
-      `Bạn có chắc chắn muốn xóa linh kiện "${item.name}" (SKU: ${item.code})?\n\nLưu ý: Chỉ linh kiện có tồn kho bằng 0 và chưa từng phát sinh giao dịch xuất/nhập/mượn mới có thể xóa.`
-    );
-    if (!confirmed) return;
+  // Safe item deletion handler with confirmation modal
+  const handleDeleteItem = (item: ItemResponse) => {
+    setItemToDelete(item);
+    setDeleteModalOpen(true);
+  };
 
+  const confirmDeleteItem = async () => {
+    if (!itemToDelete) return;
+    setDeletingItem(true);
     try {
-      const res = await apiClient.delete(`/items/${item.id}`);
+      const res = await apiClient.delete(`/items/${itemToDelete.id}`);
       if (res.data?.success) {
-        addToast('success', 'Xóa thành công', `Đã xóa linh kiện: ${item.code}`);
+        addToast('success', 'Xóa thành công', `Đã xóa linh kiện: ${itemToDelete.code}`);
+        setDeleteModalOpen(false);
+        setItemToDelete(null);
         fetchItems();
       }
     } catch (err: any) {
       const msg = err.response?.data?.message || 'Không thể xóa linh kiện';
       addToast('error', 'Lỗi xóa linh kiện', msg);
+    } finally {
+      setDeletingItem(false);
     }
   };
 
@@ -690,6 +702,30 @@ export const ItemsPage: React.FC = () => {
         onSuccess={(msg) => {
           addToast('success', 'Cập nhật trạng thái', msg);
           fetchItems();
+        }}
+      />
+
+      <ConfirmationModal
+        isOpen={deleteModalOpen}
+        title={`Xác nhận xóa linh kiện ${itemToDelete?.code}`}
+        message={
+          <div>
+            <p>
+              Bạn có chắc chắn muốn xóa linh kiện <strong>"{itemToDelete?.name}"</strong> (SKU:{' '}
+              <span className="font-mono">{itemToDelete?.code}</span>)?
+            </p>
+            <p className="mt-2 text-rose-600 font-semibold">
+              Lưu ý: Chỉ linh kiện có tồn kho bằng 0 và chưa từng phát sinh giao dịch xuất/nhập/mượn mới có thể xóa hoàn toàn.
+            </p>
+          </div>
+        }
+        confirmLabel="Xóa linh kiện"
+        variant="danger"
+        isLoading={deletingItem}
+        onConfirm={confirmDeleteItem}
+        onCancel={() => {
+          setDeleteModalOpen(false);
+          setItemToDelete(null);
         }}
       />
     </div>

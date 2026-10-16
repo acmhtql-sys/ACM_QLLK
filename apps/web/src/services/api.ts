@@ -27,8 +27,12 @@ apiClient.interceptors.response.use(
     if (error.response?.status === 401) {
       localStorage.removeItem('acm_token');
       localStorage.removeItem('acm_user');
-      // If not already on login page, redirect
-      if (window.location.pathname !== '/login') {
+      // If not already on login page, record expired notice and redirect
+      if (typeof window !== 'undefined' && window.location.pathname !== '/login') {
+        const msg =
+          error.response?.data?.message ||
+          'Phiên làm việc của bạn đã hết hạn hoặc tài khoản bị khóa/thay đổi quyền. Vui lòng đăng nhập lại.';
+        sessionStorage.setItem('acm_session_expired', msg);
         window.location.href = '/login';
       }
     }

@@ -7,7 +7,7 @@ import { AppError } from '../../shared/AppError';
 import { sendSuccess } from '../../shared/response';
 import { authenticate } from '../../middleware/auth';
 import { loginRateLimiter } from '../../middleware/rateLimiter';
-import { loginSchema } from '@acm/shared';
+import { loginSchema, changePasswordSchema } from '@acm/shared';
 
 export const authRouter = Router();
 
@@ -109,5 +109,57 @@ authRouter.post('/login', loginRateLimiter, async (req: Request, res: Response, 
  */
 authRouter.get('/me', authenticate, (req: Request, res: Response) => {
   sendSuccess(res, { user: req.user }, 'Thông tin tài khoản hiện tại');
+});
+
+/**
+ * POST /api/v1/auth/change-password
+ * Changes password for currently authenticated user.
+ */
+authRouter.post('/change-password', authenticate, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const parsed = changePasswordSchema.safeParse(req.body);
+    if (!parsed.success) {
+      throw new AppError('Dữ liệu đổi mật khẩu không hợp lệ', 422, parsed.error.errors);
+    }
+
+    const { currentPassword, newPassword } = parsed.data;
+
+    const user = await prisma.user.findUnique({
+      where: { id: req.user!.id },
+      select: { id: true, passwordHash: true, email: true },
+    });
+
+    if (!user) {
+      throw new AppError('Người dùng không tồn tại', 404);
+    }
+
+    const isMatch = await bcrypt.compare(currentPassword, user.passwordHash);
+    if (!isMatch) {
+      throw new AppError('Mật khẩu hiện tại không chính xác', 400);
+    }
+
+    const newHash = await bcrypt.hash(newPassword, 10);
+    await prisma.user.update({
+      where: { id: user.id },
+      data: { passwordHash: newHash },
+    });
+
+    // Audit log (strictly without passwords)
+    await prisma.auditLog.create({
+      data: {
+        userId: user.id,
+        action: 'USER_CHANGE_PASSWORD',
+        entity: 'USER',
+        entityId: user.id,
+        newValue: { changed: true },
+        ipAddress: req.ip || null,
+        userAgent: req.get('user-agent') || null,
+      },
+    });
+
+    return sendSuccess(res, { changed: true }, 'Đổi mật khẩu thành công');
+  } catch (err) {
+    next(err);
+  }
 });
 

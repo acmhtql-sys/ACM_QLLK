@@ -92,12 +92,23 @@ export const queryUsersSchema = z.object({
 });
 
 
-// Category schema
+// Category schemas
 export const createCategorySchema = z.object({
   name: z.string().min(2, 'Tên danh mục phải có ít nhất 2 ký tự'),
   code: z.string().min(2, 'Mã danh mục phải có ít nhất 2 ký tự'),
   description: z.string().optional(),
   parentId: z.string().uuid().optional().nullable(),
+});
+
+export const updateCategorySchema = z.object({
+  name: z.string().min(2, 'Tên danh mục phải có ít nhất 2 ký tự').optional(),
+  description: z.string().optional().nullable(),
+  parentId: z.string().uuid().optional().nullable(),
+});
+
+export const changePasswordSchema = z.object({
+  currentPassword: z.string().min(1, 'Vui lòng nhập mật khẩu hiện tại'),
+  newPassword: z.string().min(8, 'Mật khẩu mới phải có ít nhất 8 ký tự'),
 });
 
 // Item create schema
@@ -747,6 +758,8 @@ export type QueryAuditLogsInput = z.infer<typeof queryAuditLogsSchema>;
 export type QueryReportsInput = z.infer<typeof queryReportsSchema>;
 
 export type CreateCategoryInput = z.infer<typeof createCategorySchema>;
+export type UpdateCategoryInput = z.infer<typeof updateCategorySchema>;
+export type ChangePasswordInput = z.infer<typeof changePasswordSchema>;
 export type CreateItemInput = z.infer<typeof createItemSchema>;
 export type UpdateItemInput = z.infer<typeof updateItemSchema>;
 export type UpdateItemStatusInput = z.infer<typeof updateItemStatusSchema>;

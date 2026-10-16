@@ -43,3 +43,7 @@ export const TableSkeleton: React.FC<{ rows?: number; columns?: number }> = ({
     </div>
   );
 };
+
+export const LoadingSkeleton: React.FC<{ rows?: number }> = ({ rows = 5 }) => {
+  return <TableSkeleton rows={rows} />;
+};

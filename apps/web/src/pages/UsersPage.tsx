@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { DemoDataNotice } from '../components/DemoDataNotice';
 import { StatusBadge } from '../components/StatusBadge';
+import { ConfirmationModal } from '../components/common/ConfirmationModal';
 import { apiClient } from '../services/api';
 import { UserRole } from '@acm/shared';
 
@@ -44,6 +45,17 @@ export const UsersPage: React.FC = () => {
   const [isCreateModalOpen, setIsCreateModalOpen] = useState<boolean>(false);
   const [isResetPasswordModalOpen, setIsResetPasswordModalOpen] = useState<boolean>(false);
   const [selectedUser, setSelectedUser] = useState<UserItem | null>(null);
+
+  // Status toggle confirmation modal
+  const [confirmModal, setConfirmModal] = useState<{
+    isOpen: boolean;
+    user: UserItem | null;
+    field: 'isActive' | 'isLocked';
+  }>({
+    isOpen: false,
+    user: null,
+    field: 'isActive',
+  });
 
   // Create user form state
   const [createFormData, setCreateFormData] = useState({
@@ -122,14 +134,21 @@ export const UsersPage: React.FC = () => {
     }
   };
 
-  const handleToggleStatus = async (user: UserItem, field: 'isActive' | 'isLocked') => {
+  const handleToggleStatus = (user: UserItem, field: 'isActive' | 'isLocked') => {
+    setConfirmModal({
+      isOpen: true,
+      user,
+      field,
+    });
+  };
+
+  const executeToggleStatus = async () => {
+    const { user, field } = confirmModal;
+    if (!user) return;
+
     const actionName = field === 'isActive'
       ? (user.isActive ? 'vô hiệu hóa' : 'kích hoạt')
       : (user.isLocked ? 'mở khóa' : 'khóa');
-
-    if (!window.confirm(`Bạn có chắc chắn muốn ${actionName} tài khoản ${user.email}?`)) {
-      return;
-    }
 
     setActionLoading(`${field}-${user.id}`);
     setStatusMessage(null);
@@ -141,6 +160,7 @@ export const UsersPage: React.FC = () => {
       const res = await apiClient.patch(`/users/${user.id}/status`, payload);
       if (res.data?.success) {
         setStatusMessage({ type: 'success', text: `Đã ${actionName} tài khoản thành công!` });
+        setConfirmModal({ isOpen: false, user: null, field: 'isActive' });
         await fetchUsers();
       }
     } catch (err: any) {
@@ -565,6 +585,41 @@ export const UsersPage: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* Confirmation Modal */}
+      <ConfirmationModal
+        isOpen={confirmModal.isOpen}
+        title={
+          confirmModal.field === 'isActive'
+            ? confirmModal.user?.isActive
+              ? 'Vô hiệu hóa tài khoản'
+              : 'Kích hoạt tài khoản'
+            : confirmModal.user?.isLocked
+            ? 'Mở khóa tài khoản'
+            : 'Khóa tài khoản'
+        }
+        message={
+          confirmModal.field === 'isActive'
+            ? `Bạn có chắc chắn muốn ${
+                confirmModal.user?.isActive ? 'vô hiệu hóa' : 'kích hoạt'
+              } tài khoản "${confirmModal.user?.email}"?`
+            : `Bạn có chắc chắn muốn ${
+                confirmModal.user?.isLocked ? 'mở khóa' : 'khóa'
+              } tài khoản "${confirmModal.user?.email}"?`
+        }
+        confirmText="Xác nhận"
+        cancelText="Hủy"
+        variant={
+          confirmModal.field === 'isActive' && confirmModal.user?.isActive
+            ? 'danger'
+            : confirmModal.field === 'isLocked' && !confirmModal.user?.isLocked
+            ? 'warning'
+            : 'info'
+        }
+        isLoading={actionLoading !== null}
+        onConfirm={executeToggleStatus}
+        onCancel={() => setConfirmModal({ isOpen: false, user: null, field: 'isActive' })}
+      />
     </div>
   );
 };

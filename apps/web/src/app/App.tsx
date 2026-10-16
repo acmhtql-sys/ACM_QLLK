@@ -15,6 +15,8 @@ import { ReportsPage } from '../pages/ReportsPage';
 import { AuditLogsPage } from '../pages/AuditLogsPage';
 import { SettingsPage } from '../pages/SettingsPage';
 
+import { ToastProvider } from '../context/ToastContext';
+
 // Protected Route wrapper
 const ProtectedRoute: React.FC<{ children: React.ReactElement }> = ({ children }) => {
   const { isAuthenticated } = useAuth();
@@ -26,9 +28,10 @@ const ProtectedRoute: React.FC<{ children: React.ReactElement }> = ({ children }
 
 export const App: React.FC = () => {
   return (
-    <BrowserRouter>
-      <Routes>
-        <Route path="/login" element={<LoginPage />} />
+    <ToastProvider>
+      <BrowserRouter>
+        <Routes>
+          <Route path="/login" element={<LoginPage />} />
 
         {/* Dashboard routes wrapped in DashboardLayout */}
         <Route
@@ -56,5 +59,6 @@ export const App: React.FC = () => {
         <Route path="*" element={<Navigate to="/dashboard" replace />} />
       </Routes>
     </BrowserRouter>
-  );
+  </ToastProvider>
+);
 };

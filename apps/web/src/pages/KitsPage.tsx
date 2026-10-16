@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import { DemoDataNotice } from '../components/DemoDataNotice';
 import { StatusBadge } from '../components/StatusBadge';
+import { ConfirmationModal } from '../components/common/ConfirmationModal';
 import { apiClient } from '../services/api';
 import { KitStatus } from '@acm/shared';
 
@@ -83,6 +84,18 @@ export const KitsPage: React.FC = () => {
     description: '',
     locationId: '',
     items: [{ itemId: '', quantity: 1, notes: '' }],
+  });
+
+  // Confirmation Modal state
+  const [confirmModal, setConfirmModal] = useState<{
+    isOpen: boolean;
+    type: 'STATUS' | 'DELETE';
+    kit: KitRecord | null;
+    targetStatus?: KitStatus;
+  }>({
+    isOpen: false,
+    type: 'STATUS',
+    kit: null,
   });
 
   const fetchKits = async () => {
@@ -213,18 +226,19 @@ export const KitsPage: React.FC = () => {
     }
   };
 
-  const handleStatusTransition = async (kit: KitRecord, targetStatus: KitStatus) => {
-    const actionDesc: Record<KitStatus, string> = {
-      [KitStatus.AVAILABLE]: 'chuyển sang Sẵn sàng',
-      [KitStatus.ALLOCATED]: 'bàn giao / phân bổ',
-      [KitStatus.MAINTENANCE]: 'đưa vào bảo trì',
-      [KitStatus.RETIRED]: 'thanh lý / rã kit hoàn trả linh kiện',
-    };
+  const handleStatusTransition = (kit: KitRecord, targetStatus: KitStatus) => {
+    setConfirmModal({
+      isOpen: true,
+      type: 'STATUS',
+      kit,
+      targetStatus,
+    });
+  };
 
-    if (!window.confirm(`Bạn có chắc muốn ${actionDesc[targetStatus]} cho hộp kit ${kit.code}?`)) {
-      return;
-    }
-
+  const executeStatusTransition = async () => {
+    if (!confirmModal.kit || !confirmModal.targetStatus) return;
+    const kit = confirmModal.kit;
+    const targetStatus = confirmModal.targetStatus;
     setActionLoading(`status-${kit.id}`);
     setStatusMessage(null);
     try {
@@ -234,6 +248,7 @@ export const KitsPage: React.FC = () => {
           type: 'success',
           text: `Đã cập nhật trạng thái hộp kit ${kit.code} thành công!`,
         });
+        setConfirmModal({ isOpen: false, type: 'STATUS', kit: null });
         await fetchKits();
       }
     } catch (err: any) {
@@ -246,15 +261,17 @@ export const KitsPage: React.FC = () => {
     }
   };
 
-  const handleDeleteKit = async (kit: KitRecord) => {
-    if (
-      !window.confirm(
-        `Xác nhận xóa hộp kit '${kit.code}'? Toàn bộ linh kiện đã gán sẽ được giải phóng về tồn kho khả dụng.`
-      )
-    ) {
-      return;
-    }
+  const handleDeleteKit = (kit: KitRecord) => {
+    setConfirmModal({
+      isOpen: true,
+      type: 'DELETE',
+      kit,
+    });
+  };
 
+  const executeDeleteKit = async () => {
+    if (!confirmModal.kit) return;
+    const kit = confirmModal.kit;
     setActionLoading(`delete-${kit.id}`);
     setStatusMessage(null);
     try {
@@ -264,6 +281,7 @@ export const KitsPage: React.FC = () => {
           type: 'success',
           text: res.data.message || 'Xóa hộp kit thành công!',
         });
+        setConfirmModal({ isOpen: false, type: 'DELETE', kit: null });
         await fetchKits();
       }
     } catch (err: any) {
@@ -730,6 +748,38 @@ export const KitsPage: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* Confirmation Modal for Status Transition or Delete */}
+      <ConfirmationModal
+        isOpen={confirmModal.isOpen}
+        title={
+          confirmModal.type === 'DELETE'
+            ? `Xác nhận xóa hộp Kit ${confirmModal.kit?.code}`
+            : `Thay đổi trạng thái Kit ${confirmModal.kit?.code}`
+        }
+        message={
+          confirmModal.type === 'DELETE' ? (
+            <div>
+              <p>
+                Bạn có chắc chắn muốn xóa hộp kit <strong>"{confirmModal.kit?.name}"</strong> ({confirmModal.kit?.code})?
+              </p>
+              <p className="mt-2 text-rose-600 font-semibold">
+                Toàn bộ các linh kiện thành phần đã gán vào kit này sẽ được tự động giải phóng hoàn toàn về kho khả dụng (Available).
+              </p>
+            </div>
+          ) : (
+            <p>
+              Bạn có chắc muốn chuyển trạng thái hộp kit sang{' '}
+              <strong className="text-blue-600">{confirmModal.targetStatus}</strong>?
+            </p>
+          )
+        }
+        confirmLabel={confirmModal.type === 'DELETE' ? 'Xác nhận xóa Kit' : 'Cập nhật trạng thái'}
+        variant={confirmModal.type === 'DELETE' ? 'danger' : 'warning'}
+        isLoading={Boolean(actionLoading)}
+        onConfirm={confirmModal.type === 'DELETE' ? executeDeleteKit : executeStatusTransition}
+        onCancel={() => setConfirmModal({ isOpen: false, type: 'STATUS', kit: null })}
+      />
     </div>
   );
 };
