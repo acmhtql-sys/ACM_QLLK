@@ -280,6 +280,20 @@ describe('Phase 1 – Authentication & Security Hardening Unit Tests', () => {
       expect(err.message).toContain('Lỗi kết nối cơ sở dữ liệu');
     });
 
+    it('fails closed when optional authentication cannot query the database', async () => {
+      const token = jwt.sign({ id: mockUserId }, secret);
+      const { req, res, next, getError } = createMockContext({
+        authorization: `Bearer ${token}`,
+      });
+      vi.spyOn(prisma.user, 'findUnique').mockRejectedValue(new Error('database unavailable'));
+
+      await authenticateOptional(req, res as any, next);
+
+      expect(getError()).toBeInstanceOf(AppError);
+      expect(getError().statusCode).toBe(500);
+      expect(req.user).toBeUndefined();
+    });
+
     it('authenticateOptional attaches active user if valid, or leaves undefined if unauthenticated/invalid', async () => {
       // 1. Without token -> next() called, req.user is undefined
       const ctx1 = createMockContext();
@@ -360,6 +374,20 @@ describe('Phase 1 – Authentication & Security Hardening Unit Tests', () => {
       expect(ctx4.res.body.message).toContain('Quá nhiều yêu cầu đăng nhập');
       expect(ctx4.res.getHeader('retry-after')).toBeDefined();
 
+      limiter.destroy();
+    });
+
+    it('does not trust a client-supplied X-Forwarded-For header for the rate-limit key', () => {
+      const limiter = createLoginRateLimiter({ windowMs: 60 * 1000, max: 1 });
+      const ip = '198.51.100.25';
+
+      const first = createMockContext({ 'x-forwarded-for': '203.0.113.9' }, ip);
+      limiter(first.req, first.res as any, first.next);
+      expect(first.wasNextCalled()).toBe(true);
+
+      const second = createMockContext({ 'x-forwarded-for': '203.0.113.10' }, ip);
+      limiter(second.req, second.res as any, second.next);
+      expect(second.res.statusCode).toBe(429);
       limiter.destroy();
     });
 
