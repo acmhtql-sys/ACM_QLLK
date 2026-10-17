@@ -12,12 +12,12 @@ export const auditLogsRouter = Router();
 /**
  * GET /api/v1/audit-logs
  * Retrieves paginated audit logs with search, action, entity, user and date filtering.
- * RBAC: ADMIN, LAB_MANAGER
+ * RBAC: ADMIN
  */
 auditLogsRouter.get(
   '/',
   authenticate,
-  authorizeRoles(UserRole.ADMIN, UserRole.LAB_MANAGER),
+  authorizeRoles(UserRole.ADMIN),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const parsed = queryAuditLogsSchema.safeParse(req.query);
@@ -36,12 +36,12 @@ auditLogsRouter.get(
 /**
  * GET /api/v1/audit-logs/:id
  * Retrieves a single audit log by ID with sanitized details.
- * RBAC: ADMIN, LAB_MANAGER
+ * RBAC: ADMIN
  */
 auditLogsRouter.get(
   '/:id',
   authenticate,
-  authorizeRoles(UserRole.ADMIN, UserRole.LAB_MANAGER),
+  authorizeRoles(UserRole.ADMIN),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { id } = req.params;

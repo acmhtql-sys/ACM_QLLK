@@ -46,7 +46,12 @@ export async function authenticate(req: Request, _res: Response, next: NextFunct
     return next(new AppError('Mã xác thực không hợp lệ', 401));
   }
 
-  if (!decoded || typeof decoded !== 'object' || !decoded.id) {
+  if (
+    !decoded ||
+    typeof decoded !== 'object' ||
+    typeof decoded.id !== 'string' ||
+    !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(decoded.id)
+  ) {
     return next(new AppError('Mã xác thực không hợp lệ: thiếu thông tin định danh', 401));
   }
 
@@ -114,7 +119,12 @@ export async function authenticateOptional(req: Request, _res: Response, next: N
     return next();
   }
 
-  if (!decoded || typeof decoded !== 'object' || !decoded.id) {
+  if (
+    !decoded ||
+    typeof decoded !== 'object' ||
+    typeof decoded.id !== 'string' ||
+    !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(decoded.id)
+  ) {
     return next();
   }
 
@@ -140,7 +150,8 @@ export async function authenticateOptional(req: Request, _res: Response, next: N
       };
     }
   } catch (dbErr) {
-    logger.warn('Database error during authenticateOptional, proceeding unauthenticated:', dbErr);
+    logger.error('Database error during authenticateOptional:', dbErr);
+    return next(new AppError('Lỗi kết nối cơ sở dữ liệu khi xác thực người dùng', 500));
   }
 
   next();
