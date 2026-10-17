@@ -57,6 +57,11 @@ jobs:
       - name: Generate Prisma Client
         run: npm run prisma:generate
 
+      # Workspace consumers resolve @acm/shared through packages/shared/dist.
+      # Compile it before TypeScript checks the API and Web workspaces.
+      - name: Build Shared Workspace
+        run: npm run build:shared
+
       - name: Typecheck Monorepo
         run: npm run typecheck
 
