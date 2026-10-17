@@ -517,7 +517,7 @@ describe('ACM Phase 4 – Borrow & Return Management Test Suite', () => {
             item: { id: itemId, name: 'STM32F401' },
           },
         ],
-        reservations: [{ itemId, locationId }],
+        reservations: [{ itemId, locationId, status: ReservationStatus.FULFILLED }],
       });
 
       mockTx.returnTransaction.findUnique.mockResolvedValue(null);
@@ -614,7 +614,7 @@ describe('ACM Phase 4 – Borrow & Return Management Test Suite', () => {
             item: { id: itemId, name: 'STM32F401' },
           },
         ],
-        reservations: [{ itemId, locationId }],
+        reservations: [{ itemId, locationId, status: ReservationStatus.FULFILLED }],
       });
 
       mockTx.returnTransaction.findUnique.mockResolvedValue(null);
@@ -716,7 +716,7 @@ describe('ACM Phase 4 – Borrow & Return Management Test Suite', () => {
             item: { id: itemId, name: 'STM32F401' },
           },
         ],
-        reservations: [{ itemId, locationId }],
+        reservations: [{ itemId, locationId, status: ReservationStatus.FULFILLED }],
       });
 
       mockTx.returnTransaction.findUnique.mockResolvedValue(null);
@@ -906,7 +906,7 @@ describe('ACM Phase 4 – Borrow & Return Management Test Suite', () => {
             item: { id: itemId, name: 'Arduino Uno R3' },
           },
         ],
-        reservations: [{ itemId, locationId }],
+        reservations: [{ itemId, locationId, status: ReservationStatus.FULFILLED }],
       });
 
       await expect(
@@ -931,7 +931,7 @@ describe('ACM Phase 4 – Borrow & Return Management Test Suite', () => {
         id: borrowRequestId,
         status: BorrowStatus.HANDED_OVER,
         details: [{ id: borrowDetailId, itemId, quantity: 2, returnedQuantity: 0, item: { name: 'Arduino Uno R3' } }],
-        reservations: [{ itemId, locationId }],
+        reservations: [{ itemId, locationId, status: ReservationStatus.FULFILLED }],
       });
 
       await expect(borrowService.returnBorrowRequest(
@@ -1272,7 +1272,7 @@ describe('ACM Phase 4 – Borrow & Return Management Test Suite', () => {
             item: { id: itemId, name: 'Cáp chuyển đổi UART' },
           },
         ],
-        reservations: [{ itemId, locationId }],
+        reservations: [{ itemId, locationId, status: ReservationStatus.FULFILLED }],
       }));
 
       mockTx.returnTransaction.findUnique.mockResolvedValue(null);
