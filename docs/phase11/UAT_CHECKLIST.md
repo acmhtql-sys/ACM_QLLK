@@ -2,6 +2,8 @@
 
 **Ngày lập:** 17/10/2026 · **Phạm vi:** chỉ hoàn trả về đúng kho nguồn · **Tất cả mục dưới đây là kế hoạch, chưa phải kết quả kiểm thử thủ công.**
 
+> **Bằng chứng UAT tự động:** CI chạy `npm run test:uat:ledger` trên PostgreSQL `acm_inventory_test` cô lập. Artifact `phase11-ledger-evidence` ghi số dư trước/sau từng kịch bản. Đây chỉ là **API/DB rehearsal**, không phải UAT giao diện hay ký nghiệm thu thủ công. Các ô manual bên dưới vẫn để trống.
+
 ## A. Tiền điều kiện và dữ liệu kiểm thử
 
 - [ ] QA dùng đúng commit PR #7, có tên người kiểm thử, ngày, phiên bản và ID chạy CI.

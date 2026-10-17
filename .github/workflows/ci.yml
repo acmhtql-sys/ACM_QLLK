@@ -112,3 +112,15 @@ jobs:
 
       - name: Run Integration & E2E Tests
         run: npm run test:integration
+
+      - name: Phase 11 Isolated Ledger UAT (PostgreSQL test only)
+        run: npm run test:uat:ledger
+
+      - name: Upload Phase 11 UAT Evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase11-ledger-evidence
+          path: apps/api/test-results/phase11-ledger-evidence.json
+          if-no-files-found: warn
+          retention-days: 7
