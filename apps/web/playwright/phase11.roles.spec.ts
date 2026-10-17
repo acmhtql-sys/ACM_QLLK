@@ -53,6 +53,13 @@ async function signInFixture(page: Page, role: Role, path = '/borrow-return') {
   await page.goto(path);
 }
 
+test('production preview login has no prefilled demo secrets or demo account chooser', async ({ page }) => {
+  await page.goto('/login');
+  await expect(page.getByPlaceholder('ten.nguoidung@acm.local')).toHaveValue('');
+  await expect(page.getByPlaceholder('••••••••••••')).toHaveValue('');
+  await expect(page.getByText('Tài khoản mẫu theo vai trò (Click để chọn nhanh)')).toHaveCount(0);
+});
+
 test('Unauthenticated direct URL redirects to login', async ({ page }) => {
   await mockApi(page);
   await page.goto('/users');
@@ -129,4 +136,11 @@ test('STUDENT borrow creation modal loads item list from real API data-array con
   const modal = page.getByText('Đăng ký Phiếu mượn Linh kiện mới');
   await expect(modal).toBeVisible();
   await expect(page.getByRole('option', { name: /UI-TEST-ITEM/ })).toBeAttached();
+});
+
+test('ADMIN dashboard shows a real error rather than fabricated KPIs when API rejects report', async ({ page }) => {
+  await signInFixture(page, 'ADMIN', '/dashboard');
+  // API fixture above deliberately supplies invalid summary data to exercise error UX.
+  await expect(page.getByRole('alert')).toContainText('Không thể tải Dashboard từ máy chủ');
+  await expect(page.getByText('570')).toHaveCount(0);
 });
