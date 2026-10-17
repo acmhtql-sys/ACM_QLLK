@@ -45,7 +45,19 @@ Leave PR #2, PR #3, PR #5 and PR #6 in Draft. Do not merge to `main`, rewrite br
 
 
 ## Follow-up findings: inventory ledger and returns (2026-10-17)
-- **Fixed in commit `e7cc0d4`:** a single return payload could contain the same `borrowDetailId` twice; individual checks could accept both and overcount returned units. The HTTP validator and direct service call now reject duplicates. Added Shared, service unit and PostgreSQL E2E regression checks.
-- **Needs further design/review — cross-location return:** return destination may be chosen from `locationId` supplied by caller, while `borrowed` is tracked per `itemId + locationId`. Using `decrement: Math.min(bal.borrowed, returnedQuantity)` can leave borrowed quantities attached to the handover location when items return elsewhere, or hide an insufficient borrowed balance. The current code should not be considered fully reconciled for cross-location returns; require a source-ledger allocation policy and new multi-location tests before staging sign-off.
-- **Concurrency residual risk:** tests TC-BR-24 and TC-BR-25 in the mock suite run first call then second call sequentially. They do not prove simultaneous approvals/returns are serializable on PostgreSQL. Add DB-backed concurrency tests and safeguards before production use.
-- **Policy gate:** ADMIN-only Audit Logs and reports are current code policy, not product-owner authorization to publish. Confirm the expected access matrix prior to merging.
+
+- **Fixed duplicate returns** in commit `e7cc0d4`: Zod and service-level validation reject repeated `borrowDetailId` rows; Shared, API and PostgreSQL E2E regressions cover it.
+- **Concurrent stock mutation protection implemented:** all six borrow/return state-changing transactions now use PostgreSQL `Serializable` isolation via `runBorrowTransaction`. Prisma `P2034` is surfaced as HTTP 409 so users can reload before a deliberate retry; operations are not silently retried.
+- **PostgreSQL concurrency regression:** two requests approving the final one available unit concurrently yield exactly one successful reservation and no negative available balance (integration test on the isolated test database).
+- **Cross-location returns FAIL CLOSED:** current model tracks `borrowed` by item/location but not by individual return source allocation. The API refuses any cross-location return and any return with ambiguous source reservations or insufficient source borrowed stock (HTTP 409). A same-source return decrements the full quantity without silently capping. An API E2E test confirms rejected cross-location return does not modify source balance or create return rows.
+- **Limitations:** support for returning to a different location is **not implemented**, only disabled safely. To enable it, design a per-borrow-detail source allocation ledger and destination stock-movement semantics, including multi-source partial returns, then extend tests. Tests have not established serializability for all possible stock/kit operations; manual staging and broader stress tests remain necessary.
+- **Policy gate:** ADMIN-only Audit Logs and reports remains a product-owner decision, not deployment approval.
+
+## Updated release gates
+- [x] 345/345 automated tests on PR integration candidate (Shared 135, API 171, Web 11, E2E 28); [PR GitHub Actions run 38995226766](https://github.com/acmhtql-sys/ACM_QLLK/actions/runs/38995226766)
+- [x] PostgreSQL test validates exactly one of two simultaneous approvals succeeds for one available unit
+- [x] Reject cross-location return rather than risking wrong per-location ledger
+- [ ] Business owner confirms whether cross-location return feature is required for initial release
+- [ ] Approve ADMIN-only reports and audit log permission matrix
+- [ ] Manual staging workflow, stock reconciliation and human code review
+- [ ] Explicit authorization to merge and deploy
