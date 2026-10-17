@@ -521,7 +521,7 @@ describe('Phase 1 – Authentication & Security Hardening Unit Tests', () => {
       expect(localCheck2.allowed).toBe(true);
     });
 
-    it('allows remote database seeding only when ALLOW_REMOTE_SEED=true is explicitly set', () => {
+    it('denies remote database seeding even if the legacy ALLOW_REMOTE_SEED flag is set', () => {
       const prevVal = process.env.ALLOW_REMOTE_SEED;
       try {
         process.env.ALLOW_REMOTE_SEED = 'true';
@@ -529,9 +529,11 @@ describe('Phase 1 – Authentication & Security Hardening Unit Tests', () => {
           'postgresql://postgres.sandbox:password@pooler.supabase.com:6543/postgres',
           'development'
         );
-        expect(check.allowed).toBe(true);
+        expect(check.allowed).toBe(false);
+        expect(check.reason).toContain('Cloud');
       } finally {
-        process.env.ALLOW_REMOTE_SEED = prevVal;
+        if (prevVal === undefined) delete process.env.ALLOW_REMOTE_SEED;
+        else process.env.ALLOW_REMOTE_SEED = prevVal;
       }
     });
   });
