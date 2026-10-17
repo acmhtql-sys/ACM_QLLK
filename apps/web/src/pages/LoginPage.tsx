@@ -174,7 +174,7 @@ export const LoginPage: React.FC = () => {
           </form>
 
           {/* Never ship demo credentials or shortcuts in built staging/production HTML. */}
-          {import.meta.env.DEV && <div className="pt-4 border-t border-slate-100">
+          {(import.meta.env.MODE === 'development' || import.meta.env.MODE === 'test') && <div className="pt-4 border-t border-slate-100">
             <div className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-2">
               Tài khoản mẫu theo vai trò (Click để chọn nhanh)
             </div>
