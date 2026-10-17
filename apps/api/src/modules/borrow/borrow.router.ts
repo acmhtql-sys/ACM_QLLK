@@ -1,41 +1,212 @@
 import { Router, Request, Response, NextFunction } from 'express';
-import { prisma } from '../../config/database';
 import { sendSuccess } from '../../shared/response';
 import { authenticate } from '../../middleware/auth';
+import { authorizeRoles } from '../../middleware/rbac';
 import { UserRole } from '@prisma/client';
+import { AppError } from '../../shared/AppError';
+import {
+  createBorrowRequestSchema,
+  approveBorrowRequestSchema,
+  rejectBorrowRequestSchema,
+  cancelBorrowRequestSchema,
+  handoverBorrowRequestSchema,
+  returnBorrowRequestSchema,
+  queryBorrowRequestsSchema,
+} from '@acm/shared';
+import { borrowService } from './borrow.service';
 
 export const borrowRouter = Router();
 
+/**
+ * GET /api/v1/borrow-requests
+ * Lists borrow requests with pagination, status, search, overdue filtering, and RBAC isolation.
+ */
 borrowRouter.get('/', authenticate, async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const borrows = await prisma.borrowRequest.findMany({
-      // Students may view only their own requests; authorized staff can view all requests.
-      where: req.user?.role === UserRole.STUDENT ? { borrowerId: req.user.id } : undefined,
-      include: {
-        borrower: { select: { fullName: true, email: true } },
-        details: {
-          include: { item: { select: { code: true, name: true } } },
-        },
-      },
-      orderBy: { createdAt: 'desc' },
+    const parsedQuery = queryBorrowRequestsSchema.safeParse(req.query);
+    if (!parsedQuery.success) {
+      throw new AppError('Tham số truy vấn không hợp lệ', 422, parsedQuery.error.errors);
+    }
+
+    const result = await borrowService.listBorrowRequests(parsedQuery.data, req.user!);
+
+    return res.status(200).json({
+      success: true,
+      message: 'Danh sách phiếu mượn từ Database',
+      data: result.items,
+      meta: result.meta,
     });
-
-    const mapped = borrows.map((b) => ({
-      id: b.id,
-      requestNumber: b.requestNumber,
-      borrowerName: b.borrower.fullName,
-      borrowerEmail: b.borrower.email,
-      status: b.status,
-      purpose: b.purpose,
-      expectedBorrowDate: b.expectedBorrowDate.toISOString().slice(0, 10),
-      expectedReturnDate: b.expectedReturnDate.toISOString().slice(0, 10),
-      itemCount: b.details.length,
-      notes: b.notes,
-      details: b.details,
-    }));
-
-    return sendSuccess(res, mapped, 'Danh sách phiếu mượn từ Database');
   } catch (err) {
     next(err);
   }
 });
+
+/**
+ * GET /api/v1/borrow-requests/:id
+ * Retrieves single borrow request details with RBAC authorization check.
+ */
+borrowRouter.get('/:id', authenticate, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const borrowRequest = await borrowService.getBorrowRequestById(req.params.id, req.user!);
+    return sendSuccess(res, borrowRequest, 'Thông tin chi tiết phiếu mượn');
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * POST /api/v1/borrow-requests
+ * Creates a new borrow request with stock availability check and date validation.
+ */
+borrowRouter.post('/', authenticate, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const parsed = createBorrowRequestSchema.safeParse(req.body);
+    if (!parsed.success) {
+      throw new AppError('Dữ liệu tạo phiếu mượn không hợp lệ', 422, parsed.error.errors);
+    }
+
+    const created = await borrowService.createBorrowRequest(parsed.data, req.user!);
+    return sendSuccess(res, created, 'Tạo phiếu mượn thành công', 201);
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * PATCH /api/v1/borrow-requests/:id/approve
+ * Approves a PENDING borrow request and reserves inventory stock.
+ * RBAC: ADMIN, LAB_MANAGER only.
+ */
+borrowRouter.patch(
+  '/:id/approve',
+  authenticate,
+  authorizeRoles(UserRole.ADMIN, UserRole.LAB_MANAGER),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const parsed = approveBorrowRequestSchema.safeParse(req.body);
+      if (!parsed.success) {
+        throw new AppError('Dữ liệu phê duyệt không hợp lệ', 422, parsed.error.errors);
+      }
+
+      const approved = await borrowService.approveBorrowRequest(
+        req.params.id,
+        parsed.data,
+        req.user!
+      );
+      return sendSuccess(res, approved, 'Phê duyệt phiếu mượn thành công');
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+/**
+ * PATCH /api/v1/borrow-requests/:id/reject
+ * Rejects a PENDING borrow request with required rejection reason.
+ * RBAC: ADMIN, LAB_MANAGER only.
+ */
+borrowRouter.patch(
+  '/:id/reject',
+  authenticate,
+  authorizeRoles(UserRole.ADMIN, UserRole.LAB_MANAGER),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const parsed = rejectBorrowRequestSchema.safeParse(req.body);
+      if (!parsed.success) {
+        throw new AppError('Dữ liệu từ chối không hợp lệ', 422, parsed.error.errors);
+      }
+
+      const rejected = await borrowService.rejectBorrowRequest(
+        req.params.id,
+        parsed.data,
+        req.user!
+      );
+      return sendSuccess(res, rejected, 'Từ chối phiếu mượn thành công');
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+/**
+ * PATCH /api/v1/borrow-requests/:id/cancel
+ * Cancels a borrow request. If APPROVED, releases active reservations.
+ * RBAC: STUDENT (own PENDING requests only), ADMIN/LAB_MANAGER (PENDING or APPROVED).
+ */
+borrowRouter.patch(
+  '/:id/cancel',
+  authenticate,
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const parsed = cancelBorrowRequestSchema.safeParse(req.body);
+      if (!parsed.success) {
+        throw new AppError('Dữ liệu hủy phiếu không hợp lệ', 422, parsed.error.errors);
+      }
+
+      const cancelled = await borrowService.cancelBorrowRequest(
+        req.params.id,
+        parsed.data,
+        req.user!
+      );
+      return sendSuccess(res, cancelled, 'Hủy phiếu mượn thành công');
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+/**
+ * PATCH /api/v1/borrow-requests/:id/handover
+ * Performs physical handover of items: moves stock from reserved/onHand to borrowed and records movement.
+ * RBAC: ADMIN, LAB_MANAGER, TECHNICIAN.
+ */
+borrowRouter.patch(
+  '/:id/handover',
+  authenticate,
+  authorizeRoles(UserRole.ADMIN, UserRole.LAB_MANAGER, UserRole.TECHNICIAN),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const parsed = handoverBorrowRequestSchema.safeParse(req.body);
+      if (!parsed.success) {
+        throw new AppError('Dữ liệu bàn giao không hợp lệ', 422, parsed.error.errors);
+      }
+
+      const handedOver = await borrowService.handoverBorrowRequest(
+        req.params.id,
+        parsed.data,
+        req.user!
+      );
+      return sendSuccess(res, handedOver, 'Bàn giao linh kiện thành công');
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+/**
+ * POST /api/v1/borrow-requests/:id/return
+ * Confirms full or partial return of borrowed items with condition inspection and stock reconciliation.
+ * RBAC: ADMIN, LAB_MANAGER, TECHNICIAN.
+ */
+borrowRouter.post(
+  '/:id/return',
+  authenticate,
+  authorizeRoles(UserRole.ADMIN, UserRole.LAB_MANAGER, UserRole.TECHNICIAN),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const parsed = returnBorrowRequestSchema.safeParse(req.body);
+      if (!parsed.success) {
+        throw new AppError('Dữ liệu hoàn trả không hợp lệ', 422, parsed.error.errors);
+      }
+
+      const result = await borrowService.returnBorrowRequest(
+        req.params.id,
+        parsed.data,
+        req.user!
+      );
+      return sendSuccess(res, result, 'Xác nhận hoàn trả linh kiện thành công');
+    } catch (err) {
+      next(err);
+    }
+  }
+);

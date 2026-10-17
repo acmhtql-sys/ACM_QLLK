@@ -92,6 +92,7 @@ export const ItemDetailModal: React.FC<ItemDetailModalProps> = ({
                       {item.code}
                     </span>
                     <StatusBadge status={item.type} variant="itemType" />
+                    <StatusBadge status={item.stockStatus} variant="stockStatus" />
                     <StatusBadge
                       status={item.isActive ? 'ACTIVE' : 'INACTIVE'}
                       variant="activeStatus"

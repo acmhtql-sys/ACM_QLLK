@@ -11,8 +11,10 @@ import {
   StockTransactionSortField,
   StockMovementSortField,
   StockBalanceSortField,
+  BorrowSortField,
   BorrowStatus,
   AssetCondition,
+  StockStatus,
 } from './types';
 
 // Auth validation schemas
@@ -50,7 +52,12 @@ export const booleanQueryParam = z.preprocess((val) => {
 // Item create schema
 export const createItemSchema = z
   .object({
-    code: z.string().trim().min(2, 'Mã linh kiện/thiết bị phải có ít nhất 2 ký tự'),
+    code: z
+      .string()
+      .trim()
+      .min(2, 'Mã linh kiện/thiết bị phải có ít nhất 2 ký tự')
+      .max(50, 'Mã linh kiện/thiết bị tối đa 50 ký tự')
+      .regex(/^[A-Za-z0-9_.\-]+$/, 'Mã linh kiện chỉ được chứa chữ cái, số, dấu gạch ngang (-), gạch dưới (_) và dấu chấm (.)'),
     name: z.string().trim().min(2, 'Tên linh kiện/thiết bị phải có ít nhất 2 ký tự'),
     description: z.string().optional().nullable(),
     unit: z.string().trim().min(1, 'Đơn vị tính là bắt buộc'),
@@ -64,7 +71,13 @@ export const createItemSchema = z
 // Item update schema (Stock is NOT editable directly via Items API; empty object is rejected)
 export const updateItemSchema = z
   .object({
-    code: z.string().trim().min(2, 'Mã linh kiện/thiết bị phải có ít nhất 2 ký tự').optional(),
+    code: z
+      .string()
+      .trim()
+      .min(2, 'Mã linh kiện/thiết bị phải có ít nhất 2 ký tự')
+      .max(50, 'Mã linh kiện/thiết bị tối đa 50 ký tự')
+      .regex(/^[A-Za-z0-9_.\-]+$/, 'Mã linh kiện chỉ được chứa chữ cái, số, dấu gạch ngang (-), gạch dưới (_) và dấu chấm (.)')
+      .optional(),
     name: z.string().trim().min(2, 'Tên linh kiện/thiết bị phải có ít nhất 2 ký tự').optional(),
     description: z.string().optional().nullable(),
     unit: z.string().trim().min(1, 'Đơn vị tính là bắt buộc').optional(),
@@ -94,6 +107,8 @@ export const queryItemsSchema = z
     type: z.nativeEnum(ItemType).optional(),
     isActive: booleanQueryParam,
     isLowStock: booleanQueryParam,
+    stockStatus: z.nativeEnum(StockStatus).optional(),
+    barcode: z.string().trim().optional(),
     sortBy: z.nativeEnum(ItemSortField).default(ItemSortField.CREATED_AT),
     sortOrder: z.nativeEnum(SortOrder).default(SortOrder.DESC),
     page: z.preprocess((val) => (val !== undefined && val !== '' ? Number(val) : 1), z.number().int().min(1).default(1)),
@@ -497,21 +512,83 @@ export const queryStockMovementsSchema = z.object({
   limit: z.preprocess((val) => (val !== undefined && val !== '' ? Number(val) : 20), z.number().int().min(1).max(100).default(20)),
 });
 
-// Borrow Request Schema
-export const createBorrowRequestSchema = z.object({
-  expectedBorrowDate: z.string().datetime().or(z.string().regex(/^\d{4}-\d{2}-\d{2}/)),
-  expectedReturnDate: z.string().datetime().or(z.string().regex(/^\d{4}-\d{2}-\d{2}/)),
-  purpose: z.string().min(5, 'Mục đích mượn phải ghi rõ ít nhất 5 ký tự'),
-  notes: z.string().optional(),
-  items: z
-    .array(
-      z.object({
-        itemId: z.string().uuid(),
-        quantity: z.number().int().positive('Số lượng mượn phải lớn hơn 0'),
-      })
-    )
-    .min(1, 'Phiếu mượn phải có ít nhất 1 mặt hàng'),
+// Borrow Request Item Schema
+export const borrowRequestItemSchema = z.object({
+  itemId: z.string().uuid('ID linh kiện không hợp lệ'),
+  quantity: z.number().int().positive('Số lượng mượn phải lớn hơn 0'),
 });
+
+// Create Borrow Request Schema
+export const createBorrowRequestSchema = z
+  .object({
+    borrowerId: z.string().uuid('ID người mượn không hợp lệ').optional(),
+    expectedBorrowDate: z.string().datetime().or(z.string().regex(/^\d{4}-\d{2}-\d{2}/, 'Ngày mượn dự kiến không đúng định dạng YYYY-MM-DD')),
+    expectedReturnDate: z.string().datetime().or(z.string().regex(/^\d{4}-\d{2}-\d{2}/, 'Ngày trả dự kiến không đúng định dạng YYYY-MM-DD')),
+    purpose: z.string().trim().min(3, 'Mục đích mượn phải ghi rõ ít nhất 3 ký tự'),
+    notes: z.string().optional().nullable(),
+    items: z
+      .array(borrowRequestItemSchema)
+      .min(1, 'Phiếu mượn phải có ít nhất 1 linh kiện/thiết bị'),
+  })
+  .refine(
+    (data) => {
+      const borrowDate = new Date(data.expectedBorrowDate);
+      const returnDate = new Date(data.expectedReturnDate);
+      return returnDate.getTime() >= borrowDate.getTime();
+    },
+    {
+      message: 'Hạn trả (expectedReturnDate) phải bằng hoặc sau ngày bắt đầu mượn (expectedBorrowDate)',
+      path: ['expectedReturnDate'],
+    }
+  );
+
+// Approve Borrow Request Schema
+export const approveBorrowRequestSchema = z.object({
+  notes: z.string().optional().nullable(),
+});
+
+// Reject Borrow Request Schema
+export const rejectBorrowRequestSchema = z.object({
+  rejectionReason: z.string().trim().min(3, 'Lý do từ chối phải có ít nhất 3 ký tự'),
+});
+
+// Cancel Borrow Request Schema
+export const cancelBorrowRequestSchema = z.object({
+  reason: z.string().trim().optional().nullable(),
+});
+
+// Handover Borrow Request Schema
+export const handoverBorrowRequestSchema = z.object({
+  notes: z.string().optional().nullable(),
+});
+
+// Return Borrow Item Schema
+export const returnBorrowItemSchema = z.object({
+  borrowDetailId: z.string().uuid('ID dòng phiếu mượn (borrowDetailId) không hợp lệ'),
+  returnedQuantity: z.number().int().positive('Số lượng hoàn trả phải lớn hơn 0'),
+  condition: z.nativeEnum(AssetCondition).default(AssetCondition.GOOD),
+  locationId: z.string().uuid('ID vị trí lưu kho không hợp lệ').optional().nullable(),
+  notes: z.string().optional().nullable(),
+});
+
+// Return Borrow Request Schema
+export const returnBorrowRequestSchema = z.object({
+  items: z.array(returnBorrowItemSchema).min(1, 'Phải có ít nhất 1 linh kiện được hoàn trả'),
+  notes: z.string().optional().nullable(),
+});
+
+// Query Borrow Requests Schema
+export const queryBorrowRequestsSchema = z.object({
+  page: z.preprocess((val) => (val !== undefined && val !== '' ? Number(val) : 1), z.number().int().min(1).default(1)),
+  limit: z.preprocess((val) => (val !== undefined && val !== '' ? Number(val) : 20), z.number().int().min(1).max(100).default(20)),
+  status: z.nativeEnum(BorrowStatus).optional(),
+  search: z.string().trim().optional(),
+  borrowerId: z.string().uuid('ID người mượn không hợp lệ').optional(),
+  isOverdue: booleanQueryParam,
+  sortBy: z.nativeEnum(BorrowSortField).default(BorrowSortField.CREATED_AT),
+  sortOrder: z.nativeEnum(SortOrder).default(SortOrder.DESC),
+});
+
 
 // Inferred Types
 export type LoginInput = z.infer<typeof loginSchema>;
@@ -549,7 +626,16 @@ export type CreateStockTransactionInput = z.infer<typeof createStockTransactionS
 export type QueryStockTransactionsInput = z.infer<typeof queryStockTransactionsSchema>;
 export type QueryStockMovementsInput = z.infer<typeof queryStockMovementsSchema>;
 
+export type BorrowRequestItemInput = z.infer<typeof borrowRequestItemSchema>;
 export type CreateBorrowRequestInput = z.infer<typeof createBorrowRequestSchema>;
+export type ApproveBorrowRequestInput = z.infer<typeof approveBorrowRequestSchema>;
+export type RejectBorrowRequestInput = z.infer<typeof rejectBorrowRequestSchema>;
+export type CancelBorrowRequestInput = z.infer<typeof cancelBorrowRequestSchema>;
+export type HandoverBorrowRequestInput = z.infer<typeof handoverBorrowRequestSchema>;
+export type ReturnBorrowItemInput = z.infer<typeof returnBorrowItemSchema>;
+export type ReturnBorrowRequestInput = z.infer<typeof returnBorrowRequestSchema>;
+export type QueryBorrowRequestsInput = z.infer<typeof queryBorrowRequestsSchema>;
+
 
 // Idempotency Query Schemas & Types (Step S2A)
 export const queryIdempotencyParamsSchema = z.object({
