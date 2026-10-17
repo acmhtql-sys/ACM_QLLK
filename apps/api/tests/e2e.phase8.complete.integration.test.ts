@@ -220,6 +220,40 @@ describe('ACM Phase 8 – Comprehensive Integration & E2E Acceptance Test Suite'
       expect(res.body.success).toBe(false);
     });
 
+    it('TC-E2E-RBAC-06: denies unauthenticated and STUDENT access to audit logs', async () => {
+      const endpoint = '/api/v1/audit-logs';
+      const anonymous = await request(app).get(endpoint);
+      expect(anonymous.status).toBe(401);
+      const student = await request(app).get(endpoint).set('Authorization', `Bearer ${studentToken}`);
+      expect(student.status).toBe(403);
+      const manager = await request(app).get(endpoint).set('Authorization', `Bearer ${managerToken}`);
+      expect(manager.status).toBe(403);
+      const admin = await request(app).get(endpoint).set('Authorization', `Bearer ${adminToken}`);
+      expect(admin.status).toBe(200);
+    });
+
+    it('TC-E2E-RBAC-07: restricts all sensitive report endpoints to ADMIN', async () => {
+      for (const endpoint of ['/api/v1/reports/summary', '/api/v1/reports/inventory', '/api/v1/reports/borrow-return', '/api/v1/reports/low-stock']) {
+        const student = await request(app).get(endpoint).set('Authorization', `Bearer ${studentToken}`);
+        expect(student.status).toBe(403);
+        const manager = await request(app).get(endpoint).set('Authorization', `Bearer ${managerToken}`);
+        expect(manager.status).toBe(403);
+      }
+      const summary = await request(app).get('/api/v1/reports/summary').set('Authorization', `Bearer ${adminToken}`);
+      expect(summary.status).toBe(200);
+    });
+
+    it('TC-E2E-RBAC-08: prevents STUDENT from invoking admin password reset', async () => {
+      const before = await prisma.user.findUnique({ where: { id: studentUserId }, select: { passwordHash: true } });
+      const forbidden = await request(app)
+        .post(`/api/v1/users/${studentUserId}/reset-password`)
+        .set('Authorization', `Bearer ${studentToken}`)
+        .send({ newPassword: 'ShouldNotChange-2026-strong' });
+      expect(forbidden.status).toBe(403);
+      const after = await prisma.user.findUnique({ where: { id: studentUserId }, select: { passwordHash: true } });
+      expect(after?.passwordHash).toBe(before?.passwordHash);
+    });
+
     it('TC-E2E-RBAC-05: ADMIN has full authorized access to administrative endpoints', async () => {
       const res = await request(app)
         .get('/api/v1/users')
