@@ -36,6 +36,7 @@ interface BorrowDetailItem {
 
 interface BorrowRecord {
   id: string;
+  borrowerId: string;
   requestNumber: string;
   borrowerName?: string;
   borrowerEmail?: string;
@@ -122,9 +123,12 @@ export const BorrowReturnPage: React.FC = () => {
   const fetchItems = async () => {
     try {
       const res = await apiClient.get('/items', { params: { limit: 100 } });
-      if (res.data?.success && res.data.data?.items) {
+      if (res.data?.success) {
+        // /items returns data as an array and pagination in meta, not data.items.
+        // Accept the object shape only for backwards-compatible fixtures.
+        const list = Array.isArray(res.data.data) ? res.data.data : res.data.data?.items || [];
         setItemsList(
-          res.data.data.items.map((i: any) => ({
+          list.map((i: any) => ({
             id: i.id,
             code: i.code,
             name: i.name,
@@ -553,6 +557,16 @@ export const BorrowReturnPage: React.FC = () => {
                             <span>Từ chối</span>
                           </button>
                         </div>
+                      )}
+
+                      {b.status === 'PENDING' && user?.role === 'STUDENT' && b.borrowerId === user.id && (
+                        <button
+                          onClick={() => setConfirmModal({ isOpen: true, type: 'CANCEL', borrow: b })}
+                          disabled={actionLoading === b.id}
+                          className="rounded bg-slate-100 px-2 py-1 text-[11px] font-semibold text-slate-700 hover:bg-slate-200 disabled:opacity-50"
+                        >
+                          Hủy phiếu của tôi
+                        </button>
                       )}
 
                       {b.status === 'APPROVED' && canHandoverOrReturn && (
