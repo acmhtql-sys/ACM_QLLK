@@ -109,7 +109,7 @@ test('ADMIN opens Reports, Users and Audit Logs via direct routes', async ({ pag
   await signInFixture(page, 'ADMIN', '/reports');
   await expect(page.getByText(/Báo cáo & Thống kê Vận hành/)).toBeVisible();
   await page.goto('/users');
-  await expect(page.getByText(/Quản lý Người dùng/)).toBeVisible();
+  await expect(page.getByText(/Quản trị Người dùng/)).toBeVisible();
   await page.goto('/audit-logs');
   await expect(page.getByText(/Nhật ký Hoạt động & Kiểm toán/)).toBeVisible();
 });
