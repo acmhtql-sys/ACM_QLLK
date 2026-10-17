@@ -1,5 +1,8 @@
 # ACM Cloud Deployment Readiness & Infrastructure Audit
 
+> **LƯU Ý PHASE 11 — 17/10/2026:** Đây là tài liệu lịch sử, một số thông tin đã lỗi thời hoặc chưa được xác minh trên Cloud. Khi chuẩn bị triển khai, dùng [Phase 11 Staging Readiness](./phase11/STAGING_READINESS.md) và [UAT Checklist](./phase11/UAT_CHECKLIST.md) làm cơ sở kiểm tra mới nhất. Cloud Staging vẫn **chỉ đọc**, đăng nhập có ghi DB và không được bật mặc định, không chạy UAT ghi trên Cloud. Không thay đổi Cloud nếu chưa phê duyệt. 
+
+
 > **Tài liệu Thẩm định Sẵn sàng Triển khai Đám mây (Cloud Deployment Readiness)**  
 > **Dự án:** ACM – Hệ thống Quản lý Linh kiện & Thiết bị  
 > **Repository:** `acmhtql-sys/ACM_QLLK`  

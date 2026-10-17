@@ -74,6 +74,9 @@ jobs:
 
       # env.ts intentionally refuses to run tests without an isolated .env.test.
       # Create it only inside the ephemeral CI runner, never commit it or reuse cloud credentials.
+      - name: Phase 11 Static Staging Preflight (no cloud access)
+        run: npm run preflight:staging
+
       - name: Create isolated test environment
         shell: bash
         run: |

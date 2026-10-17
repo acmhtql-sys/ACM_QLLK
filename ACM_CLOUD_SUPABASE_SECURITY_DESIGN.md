@@ -1,4 +1,7 @@
 # ACM CLOUD SUPABASE SECURITY DESIGN
+
+> **Phase 11 code review correction (17/10/2026):** Đoạn 4.4 bên dưới mô tả login là read-only đã **không còn đúng**. `auth.router.ts` hiện ghi `failedLoginAttempts` và `isLocked` qua UPDATE/transaction. Đối với Cloud Staging chỉ đọc, giữ `ALLOW_STAGING_AUTH_LOGIN=false` cho đến khi có thiết kế đăng nhập riêng được phê duyệt. Xem [Phase 11 Staging Readiness](./docs/phase11/STAGING_READINESS.md). 
+
 ## Phase C1B-4A – Staging & Production Database Security Architecture
 
 **Document Version:** 2.2.0 (Phase C1B-4A Schema Parity & Documentation Alignment)  

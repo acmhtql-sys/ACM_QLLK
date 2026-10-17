@@ -61,3 +61,9 @@ Leave PR #2, PR #3, PR #5 and PR #6 in Draft. Do not merge to `main`, rewrite br
 - [ ] Approve ADMIN-only reports and audit log permission matrix
 - [ ] Manual staging workflow, stock reconciliation and human code review
 - [ ] Explicit authorization to merge and deploy
+
+## Phase 11 planning (2026-10-17)
+- MVP scope confirmed: **returns only to the originally handed-over warehouse/source**. Cross-location return remains denied, not silently transferred.
+- Offline-only staging configuration review and isolated writable UAT plan: [Staging Readiness](./phase11/STAGING_READINESS.md), [UAT Checklist](./phase11/UAT_CHECKLIST.md).
+- This preparation does not prove staging infrastructure is provisioned. No cloud credentials, migrations, deployments or live UAT tests were used.
+- Staging policy stays `ACM_DEPLOYMENT_PROFILE=cloud_staging`, `STAGING_READ_ONLY=true`, `ALLOW_STAGING_AUTH_LOGIN=false` until a new approved auth design is in place.

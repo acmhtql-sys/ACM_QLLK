@@ -239,6 +239,8 @@ Chi tiết checklist và quy trình triển khai: Xem tài liệu **[Cloud Deplo
 - [System Architecture & Cloud Design](./docs/architecture/system-design.md)
 - [Development Setup Guide](./docs/development/setup-guide.md)
 - [Cloud Deployment Readiness & Infrastructure Audit](./docs/DEPLOYMENT_READINESS.md)
+- [Phase 11 – Staging Readiness & Configuration Audit](./docs/phase11/STAGING_READINESS.md)
+- [Phase 11 – UAT Checklist (isolated test + cloud read-only smoke)](./docs/phase11/UAT_CHECKLIST.md)
 - [Authentication & Authorization Specifications](./Authentication_&_Authorization)
 - [User Management Specifications](./User_Management)
 - [Category & Item Management Specifications](./Category_&_Item_Management)
