@@ -18,6 +18,7 @@ const evidence = {
   scope: 'isolated PostgreSQL acm_inventory_test, same-source return only',
   commit: process.env.GITHUB_SHA || null,
   status: 'INCOMPLETE',
+  cleanup: 'PENDING',
   steps: [] as Array<{ id: string; action: string; httpStatus: number; before: Balance | null; after: Balance; expected: Balance }>,
   reconciliation: { returns: 0, movements: 0, auditEntries: 0 },
 };
@@ -38,7 +39,7 @@ async function balance(): Promise<Balance> {
 }
 async function snapshot(id: string, action: string, httpStatus: number, expected: Balance) {
   const after = await balance();
-  const before = evidence.steps.length ? evidence.steps[evidence.steps.length - 1].after : null;
+  const before = evidence.steps.length ? evidence.steps[evidence.steps.length - 1].after : want(0);
   evidence.steps.push({ id, action, httpStatus, before, after, expected });
   save();
   expect(after).toEqual(expected);
@@ -96,6 +97,12 @@ describe('Phase 11 — isolated PostgreSQL API ledger acceptance rehearsal', () 
         await prisma.stockTransaction.deleteMany({ where: { id: stockTxId } });
       }
       await prisma.item.delete({ where: { id: itemId } });
+      evidence.cleanup = 'PASS';
+      if (evidence.status === 'TEST_PASS') evidence.status = 'PASS';
+    } catch (error) {
+      evidence.cleanup = 'FAIL';
+      evidence.status = 'FAIL';
+      throw error;
     } finally {
       loginRateLimiter.destroy();
       save();
@@ -108,6 +115,14 @@ describe('Phase 11 — isolated PostgreSQL API ledger acceptance rehearsal', () 
       .send({ code, name: 'Phase11 isolated UAT item', categoryId, type: ItemType.CONSUMABLE, unit: 'pcs' });
     expect(created.status).toBe(201);
     itemId = created.body.data.id;
+    const zero = await prisma.stockBalance.findUnique({
+      where: { itemId_locationId: { itemId, locationId } },
+    });
+    expect(zero?.onHand ?? 0).toBe(0);
+    expect(zero?.reserved ?? 0).toBe(0);
+    expect(zero?.borrowed ?? 0).toBe(0);
+    expect(zero?.quarantined ?? 0).toBe(0);
+    expect(zero?.kitAllocated ?? 0).toBe(0);
     const imported = await request(app).post('/api/v1/stock-transactions/import')
       .set('Authorization', 'Bearer ' + managerToken)
       .set('Idempotency-Key', 'uat11-' + Date.now() + '-' + Math.random().toString(36).slice(2, 7))
@@ -183,7 +198,7 @@ describe('Phase 11 — isolated PostgreSQL API ledger acceptance rehearsal', () 
     expect(detail.returnedQuantity).toBe(4);
     const movements = await prisma.stockMovement.findMany({ where: { itemId } });
     expect(movements.reduce((sum, row) => sum + row.quantityDelta, 0)).toBe(9);
-    evidence.status = 'PASS';
+    evidence.status = 'TEST_PASS';
     save();
     console.log('PHASE11_LEDGER_PASS steps=' + evidence.steps.length + ' movements=' + evidence.reconciliation.movements);
   }, 90_000);
