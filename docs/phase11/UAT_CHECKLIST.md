@@ -7,7 +7,7 @@
 > **Phase 11B API/DB gates đã xác minh:** [GitHub Actions run 38999290555](https://github.com/acmhtql-sys/ACM_QLLK/actions/runs/38999290555) đạt **353/353 bài**, gồm 6 kiểm thử Phase 11B. Artifact `phase11b-gates-evidence` có trạng thái từng case và xác nhận dọn dữ liệu thử. Bao phủ UAT-08,09,12,15,17 và một phần UAT-16/18. Các ô UAT thủ công vẫn giữ trống; xem [biên bản UAT tự động](./UAT_AUTOMATED_RESULTS.md).
 
 
-> **Phase 11D — Bộ bàn giao UAT thủ công:** [MANUAL_UAT_RUNBOOK.md](./MANUAL_UAT_RUNBOOK.md) (16 bước Web + hướng dẫn vận hành an toàn), [UAT_SIGNOFF_RECORD.md](./UAT_SIGNOFF_RECORD.md) (biên bản để QA điền) và [RBAC_APPROVAL_FORM.md](./RBAC_APPROVAL_FORM.md) (7 quyết định nghiệp vụ **PENDING**). Chưa có chữ ký hoặc kết quả UAT thực tế.
+> **Phase 11D — Bộ bàn giao UAT thủ công:** [MANUAL_UAT_RUNBOOK.md](./MANUAL_UAT_RUNBOOK.md) (16 bước Web + hướng dẫn vận hành an toàn), [UAT_SIGNOFF_RECORD.md](./UAT_SIGNOFF_RECORD.md) (biên bản để QA điền) và [RBAC_APPROVAL_FORM.md](./RBAC_APPROVAL_FORM.md) (người dùng đã chốt hướng **giữ RBAC hiện tại, Reports/Audit Logs ADMIN-only**, còn chờ Owner sign-off). Chưa có chữ ký hoặc kết quả UAT thực tế.
 
 ## A. Tiền điều kiện và dữ liệu kiểm thử
 
@@ -38,7 +38,7 @@
 | UAT-15 | STUDENT | Truy cập phiếu người khác hoặc duyệt/trả phiếu | 403/404 theo contract; không lộ dữ liệu | ☐ |
 | UAT-16 | ADMIN | Kiểm tra Audit Logs sau tạo/duyệt/bàn giao/trả | Có actor, entity, timestamp, action; không lộ mật khẩu/JWT | ☐ |
 | UAT-17 | ADMIN | So sánh Dashboard/Reports với stock ledger | Các KPI được đối chiếu với số dư DB, không trừ `borrowed` hai lần | ☐ |
-| UAT-18 | LAB_MANAGER / TECHNICIAN | Truy cập Reports/Audit Logs nhạy cảm | 403 theo chính sách **tạm thời ADMIN-only**; cần Owner xác nhận | ☐ |
+| UAT-18 | LAB_MANAGER / TECHNICIAN | Truy cập Reports/Audit Logs nhạy cảm | 403 theo chính sách **ADMIN-only đã được người dùng xác nhận**, vẫn chờ ký/xác minh Owner | ☐ |
 
 **Invariant bắt buộc sau từng bước:** `onHand >= 0`, `reserved >= 0`, `borrowed >= 0`, `quarantined >= 0`, `kitAllocated >= 0`, `available >= 0`, không đổi số dư nếu request bị reject. Với hàng hỏng, `onHand` tăng cùng `quarantined` nên `available` không tăng. Với hàng mất, `onHand` không tăng. Ghi lại số liệu trước/sau và ID StockMovement/ReturnTransaction để đối soát.
 

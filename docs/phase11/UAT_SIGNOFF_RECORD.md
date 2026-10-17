@@ -38,7 +38,7 @@ Tham chiếu [hướng dẫn thao tác](./MANUAL_UAT_RUNBOOK.md) và [18 UAT-ID 
 | Chưa có | — | — | — | — | — |
 
 - **Gate dữ liệu:** [ ] Không có sai lệch OnHand/Reserved/Borrowed/Quarantined/Available; mọi return đúng kho nguồn.
-- **Gate phân quyền:** [ ] [Phiếu quyết định RBAC](./RBAC_APPROVAL_FORM.md) đã được Owner phê duyệt.
+- **Gate phân quyền:** [ ] Lựa chọn người dùng ngày 17/10/2026 đã ghi nhận (giữ phân quyền hiện tại, Reports/Audit Logs ADMIN-only); [phiếu RBAC](./RBAC_APPROVAL_FORM.md) **vẫn cần Owner xác minh/ký duyệt**.
 - **Gate chức năng:** [ ] Tất cả case MVP có manual evidence / ngoại lệ được ký; không P0/P1 đang mở.
 - **Gate bảo mật giao diện:** [ ] Không lộ mật khẩu, JWT hoặc thông tin người khác trong HTML/ảnh/console/response.
 - **Gate môi trường:** [ ] Đã xác minh DB test local và không thay đổi Cloud.

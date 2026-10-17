@@ -40,7 +40,7 @@ Trong terminal API, đặt `NODE_ENV=test` trước `npm run dev:api`; terminal 
 |---|---|---|---|
 | WEB-01 | Cả bốn | Đăng nhập từng tài khoản test, đăng xuất, đổi người dùng, thử sai mật khẩu **trong ngưỡng an toàn** | Đúng vai trò, không thấy dữ liệu người trước, sai mật khẩu có lỗi phù hợp; bản build không điền sẵn mật khẩu |
 | WEB-02 | STUDENT | Mở Sidebar; truy cập trực tiếp `/users`, `/reports`, `/audit-logs`, `/inventory`, `/transactions` | Không có menu bị cấm; nhập URL trực tiếp báo không có quyền; API không tiết lộ dữ liệu |
-| WEB-03 | LAB_MANAGER | Vào `/borrow-return`; thử `/reports`, `/audit-logs`, `/users` | Có quyền duyệt/nhận hàng; Reports/Audit/Users management UI bị chặn theo chính sách **chưa được owner phê duyệt** |
+| WEB-03 | LAB_MANAGER | Vào `/borrow-return`; thử `/reports`, `/audit-logs`, `/users` | Có quyền duyệt/nhận hàng; Reports/Audit/Users management UI bị chặn theo chính sách **được người dùng xác nhận, chờ Owner ký** |
 | WEB-04 | TECHNICIAN | Vào danh sách phiếu; tìm các nút `Duyệt`, `Bàn giao kho`, `Nhận hoàn trả` | Không có `Duyệt`; có bàn giao và nhận hoàn trả ở trạng thái hợp lệ; không được hủy phiếu APPROVED |
 | WEB-05 | ADMIN | Vào Reports, Audit Logs, Users management; xem chi tiết và lọc | Truy cập được; thông tin đúng, không hiển thị token/password hash |
 | WEB-06 | STUDENT | Tạo phiếu mượn của mình với fixture; kiểm tra dropdown linh kiện `/items` | Danh mục hiển thị, có thể chọn linh kiện; phiếu `PENDING`; tồn chưa thay đổi |
