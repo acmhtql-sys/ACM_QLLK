@@ -22,4 +22,4 @@
 
 ## Kiểm chứng trình duyệt
 
-Playwright chạy Chromium với ứng dụng Vite Preview tại localhost và intercept API responses. Nó xác minh sidebar, route chặn truy cập và các nút theo vai trò, **không có login thực, không kết nối PostgreSQL và không truy cập Cloud**. Đây là kiểm thử UI tự động, không phải UAT thủ công. API và quyền sở hữu dữ liệu có bộ kiểm thử PostgreSQL độc lập ở Phase 11B.
+Playwright chạy ở hai chế độ: **19/19 UI smoke bằng API mock** (Sidebar, route, hành động, trường hợp lỗi) và **4/4 login Web + Express API thật** trên PostgreSQL CI `acm_inventory_test` riêng, đều được xác minh trong [run 39017683030](https://github.com/acmhtql-sys/ACM_QLLK/actions/runs/39017683030). Cả hai chế độ **không sử dụng Cloud**, không thay thế QA thực hiện UAT thủ công. Dự án vẫn chưa có quyết định cấp quyền nghiệp vụ được ký; xem [RBAC_APPROVAL_FORM.md](./RBAC_APPROVAL_FORM.md).

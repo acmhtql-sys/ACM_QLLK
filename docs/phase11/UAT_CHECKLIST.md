@@ -6,6 +6,9 @@
 
 > **Phase 11B API/DB gates đã xác minh:** [GitHub Actions run 38999290555](https://github.com/acmhtql-sys/ACM_QLLK/actions/runs/38999290555) đạt **353/353 bài**, gồm 6 kiểm thử Phase 11B. Artifact `phase11b-gates-evidence` có trạng thái từng case và xác nhận dọn dữ liệu thử. Bao phủ UAT-08,09,12,15,17 và một phần UAT-16/18. Các ô UAT thủ công vẫn giữ trống; xem [biên bản UAT tự động](./UAT_AUTOMATED_RESULTS.md).
 
+
+> **Phase 11D — Bộ bàn giao UAT thủ công:** [MANUAL_UAT_RUNBOOK.md](./MANUAL_UAT_RUNBOOK.md) (16 bước Web + hướng dẫn vận hành an toàn), [UAT_SIGNOFF_RECORD.md](./UAT_SIGNOFF_RECORD.md) (biên bản để QA điền) và [RBAC_APPROVAL_FORM.md](./RBAC_APPROVAL_FORM.md) (7 quyết định nghiệp vụ **PENDING**). Chưa có chữ ký hoặc kết quả UAT thực tế.
+
 ## A. Tiền điều kiện và dữ liệu kiểm thử
 
 - [ ] QA dùng đúng commit PR #7, có tên người kiểm thử, ngày, phiên bản và ID chạy CI.
