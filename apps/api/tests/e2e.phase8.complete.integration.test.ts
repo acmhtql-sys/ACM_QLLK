@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import request from 'supertest';
+import bcrypt from 'bcryptjs';
 import { createApp } from '../src/app';
 import { prisma, checkDatabaseConnection } from '../src/config/database';
 import { ItemType, UserRole, AssetCondition } from '@acm/shared';
@@ -135,6 +136,99 @@ describe('ACM Phase 8 – Comprehensive Integration & E2E Acceptance Test Suite'
       expect(res.status).toBe(401);
       expect(res.body.success).toBe(false);
     });
+
+    it('TC-E2E-AUTH-06: atomically locks an isolated account after five concurrent wrong passwords', async () => {
+      const role = await prisma.role.findUnique({ where: { name: 'STUDENT' } });
+      expect(role).not.toBeNull();
+      const password = 'ConcurrentValidPass2026!';
+      const email = `ci-lockout-${Date.now()}-${Math.random().toString(36).slice(2)}@acm.local`;
+      const user = await prisma.user.create({
+        data: {
+          email,
+          fullName: 'CI Concurrent Lockout Fixture',
+          role: 'STUDENT',
+          roleId: role!.id,
+          passwordHash: await bcrypt.hash(password, 4),
+        },
+      });
+
+      try {
+        // Exactly five requests from one IP: all pass the IP-level rate limit.
+        // The database counter must be incremented atomically, not lost in races.
+        const results = await Promise.all(
+          Array.from({ length: 5 }, () =>
+            request(app).post('/api/v1/auth/login').send({
+              email,
+              password: 'IncorrectConcurrentPass2026!',
+            })
+          )
+        );
+        expect(results.every((res) => res.status === 401 || res.status === 403)).toBe(true);
+        expect(results.filter((res) => res.status === 403)).toHaveLength(1);
+
+        const state = await prisma.user.findUnique({
+          where: { id: user.id },
+          select: { failedLoginAttempts: true, isLocked: true },
+        });
+        expect(state).toEqual({ failedLoginAttempts: 5, isLocked: true });
+
+        // Reset only the test rate limiter: a locked account must still reject
+        // the correct password from any new IP / rate-limit window.
+        loginRateLimiter.reset();
+        const afterLock = await request(app).post('/api/v1/auth/login').send({ email, password });
+        expect(afterLock.status).toBe(403);
+      } finally {
+        await prisma.user.delete({ where: { id: user.id } });
+        loginRateLimiter.reset();
+      }
+    }, 30_000);
+
+    it('TC-E2E-AUTH-07: valid login resets four concurrent failed attempts before lockout', async () => {
+      const role = await prisma.role.findUnique({ where: { name: 'STUDENT' } });
+      expect(role).not.toBeNull();
+      const password = 'ConcurrentRecoveryPass2026!';
+      const email = `ci-recovery-${Date.now()}-${Math.random().toString(36).slice(2)}@acm.local`;
+      const user = await prisma.user.create({
+        data: {
+          email,
+          fullName: 'CI Concurrent Recovery Fixture',
+          role: 'STUDENT',
+          roleId: role!.id,
+          passwordHash: await bcrypt.hash(password, 4),
+        },
+      });
+
+      try {
+        const failed = await Promise.all(
+          Array.from({ length: 4 }, () =>
+            request(app).post('/api/v1/auth/login').send({
+              email,
+              password: 'InvalidRecoveryPass2026!',
+            })
+          )
+        );
+        expect(failed.every((res) => res.status === 401)).toBe(true);
+
+        const before = await prisma.user.findUnique({
+          where: { id: user.id },
+          select: { failedLoginAttempts: true, isLocked: true },
+        });
+        expect(before).toEqual({ failedLoginAttempts: 4, isLocked: false });
+
+        const valid = await request(app).post('/api/v1/auth/login').send({ email, password });
+        expect(valid.status).toBe(200);
+        expect(valid.body.data.token).toBeTruthy();
+
+        const after = await prisma.user.findUnique({
+          where: { id: user.id },
+          select: { failedLoginAttempts: true, isLocked: true },
+        });
+        expect(after).toEqual({ failedLoginAttempts: 0, isLocked: false });
+      } finally {
+        await prisma.user.delete({ where: { id: user.id } });
+        loginRateLimiter.reset();
+      }
+    }, 30_000);
 
     it('TC-E2E-AUTH-03: returns current user profile via /me with authenticated token', async () => {
       const res = await request(app)
