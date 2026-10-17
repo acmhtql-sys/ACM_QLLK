@@ -665,6 +665,57 @@ describe('ACM Phase 8 – Comprehensive Integration & E2E Acceptance Test Suite'
       expect(itemRes.body.data.totalOnHand).toBe(20);
       expect(itemRes.body.data.available).toBe(20);
     });
+    it('TC-E2E-BORROW-09: concurrent duplicate returns cannot double-credit stock', async () => {
+      const item = await prisma.item.create({
+        data: {
+          code: `RETURN-RACE-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+          name: 'Concurrent return test fixture',
+          categoryId: testCategoryId,
+          type: ItemType.CONSUMABLE,
+          unit: 'pcs',
+        },
+      });
+      cleanupItemIds.push(item.id);
+      await prisma.stockBalance.create({
+        data: { itemId: item.id, locationId: testLocationId, onHand: 1, reserved: 0 },
+      });
+      const now = new Date();
+      const created = await request(app).post('/api/v1/borrow-requests')
+        .set('Authorization', `Bearer ${studentToken}`)
+        .send({
+          purpose: 'PostgreSQL parallel return stock safety',
+          expectedBorrowDate: now.toISOString(),
+          expectedReturnDate: new Date(now.getTime() + 7 * 86400000).toISOString(),
+          items: [{ itemId: item.id, quantity: 1 }],
+        });
+      expect(created.status).toBe(201);
+      const requestId = created.body.data.id;
+      const detailId = created.body.data.details[0].id;
+      cleanupBorrowRequestIds.push(requestId);
+
+      const approved = await request(app).patch(`/api/v1/borrow-requests/${requestId}/approve`)
+        .set('Authorization', `Bearer ${managerToken}`).send({});
+      expect(approved.status).toBe(200);
+      const handedOver = await request(app).patch(`/api/v1/borrow-requests/${requestId}/handover`)
+        .set('Authorization', `Bearer ${techToken}`).send({});
+      expect(handedOver.status).toBe(200);
+
+      const response = await Promise.all(Array.from({ length: 2 }, () =>
+        request(app).post(`/api/v1/borrow-requests/${requestId}/return`)
+          .set('Authorization', `Bearer ${techToken}`)
+          .send({ items: [{ borrowDetailId: detailId, returnedQuantity: 1,
+            condition: AssetCondition.GOOD }] })
+      ));
+      expect(response.filter((res) => res.status === 200)).toHaveLength(1);
+      expect(response.filter((res) => [400, 409].includes(res.status))).toHaveLength(1);
+      const balance = await prisma.stockBalance.findUnique({
+        where: { itemId_locationId: { itemId: item.id, locationId: testLocationId } },
+      });
+      expect(balance?.onHand).toBe(1);
+      expect(balance?.borrowed).toBe(0);
+      expect((await prisma.borrowDetail.findUnique({ where: { id: detailId } }))?.returnedQuantity).toBe(1);
+      expect(await prisma.returnTransaction.count({ where: { borrowRequestId: requestId } })).toBe(1);
+    }, 30_000);
   });
 
   // =========================================================================
