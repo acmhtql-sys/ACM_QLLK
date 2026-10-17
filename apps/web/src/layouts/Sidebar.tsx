@@ -1,4 +1,6 @@
 import React from 'react';
+import { useAuth } from '../hooks/useAuth';
+import { canAccessPage } from '../config/access';
 import { NavLink } from 'react-router-dom';
 import {
   LayoutDashboard,
@@ -36,6 +38,8 @@ const navItems = [
 ];
 
 export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
+  const { user } = useAuth();
+  const visibleNavItems = navItems.filter(item => canAccessPage(user?.role, item.path));
   return (
     <>
       {/* Mobile Backdrop */}
@@ -76,7 +80,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
           <div className="px-3 pb-2 text-[10px] font-bold uppercase tracking-wider text-slate-400">
             Main Navigation
           </div>
-          {navItems.map((item) => {
+          {visibleNavItems.map((item) => {
             const Icon = item.icon;
             return (
               <NavLink

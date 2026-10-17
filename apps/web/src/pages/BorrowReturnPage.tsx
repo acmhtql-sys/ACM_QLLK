@@ -23,6 +23,7 @@ import { EmptyState } from '../components/common/EmptyState';
 import { ConfirmationModal } from '../components/common/ConfirmationModal';
 import { apiClient } from '../services/api';
 import { useAuth } from '../hooks/useAuth';
+import { canApproveBorrow, canProcessHandoverOrReturn } from '../config/access';
 import { useToast } from '../context/ToastContext';
 
 interface BorrowDetailItem {
@@ -62,7 +63,8 @@ interface ItemOption {
 export const BorrowReturnPage: React.FC = () => {
   const { user } = useAuth();
   const toast = useToast();
-  const canManage = user?.role === 'ADMIN' || user?.role === 'LAB_MANAGER';
+  const canManage = canApproveBorrow(user?.role);
+  const canHandoverOrReturn = canProcessHandoverOrReturn(user?.role);
 
   const [borrows, setBorrows] = useState<BorrowRecord[]>([]);
   const [itemsList, setItemsList] = useState<ItemOption[]>([]);
@@ -553,7 +555,7 @@ export const BorrowReturnPage: React.FC = () => {
                         </div>
                       )}
 
-                      {b.status === 'APPROVED' && canManage && (
+                      {b.status === 'APPROVED' && canHandoverOrReturn && (
                         <div className="inline-flex items-center space-x-1.5">
                           <button
                             onClick={() =>
@@ -569,7 +571,7 @@ export const BorrowReturnPage: React.FC = () => {
                             <ArrowRight className="h-3 w-3" />
                             <span>Bàn giao kho</span>
                           </button>
-                          <button
+                          {canManage && <button
                             onClick={() =>
                               setConfirmModal({
                                 isOpen: true,
@@ -581,11 +583,11 @@ export const BorrowReturnPage: React.FC = () => {
                             className="inline-flex items-center space-x-1 rounded bg-slate-100 px-2 py-1 text-[11px] font-semibold text-slate-600 hover:bg-slate-200 disabled:opacity-50"
                           >
                             <span>Hủy phiếu</span>
-                          </button>
+                          </button>}
                         </div>
                       )}
 
-                      {(b.status === 'HANDED_OVER' || b.status === 'PARTIALLY_RETURNED') && canManage && (
+                      {(b.status === 'HANDED_OVER' || b.status === 'PARTIALLY_RETURNED') && canHandoverOrReturn && (
                         <button
                           onClick={() => {
                             setReturningBorrow(b);

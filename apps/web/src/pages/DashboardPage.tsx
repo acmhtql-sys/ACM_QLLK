@@ -18,6 +18,7 @@ import {
 import { KpiCard } from '../components/KpiCard';
 import { DemoDataNotice } from '../components/DemoDataNotice';
 import { apiClient } from '../services/api';
+import { useAuth } from '../hooks/useAuth';
 import {
   ResponsiveContainer,
   PieChart,
@@ -34,6 +35,8 @@ import {
 
 export const DashboardPage: React.FC = () => {
   const navigate = useNavigate();
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'ADMIN';
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState<any>({
     kpis: {
@@ -72,6 +75,10 @@ export const DashboardPage: React.FC = () => {
   const [recentActivities, setRecentActivities] = useState<any[]>([]);
 
   useEffect(() => {
+    if (!isAdmin) {
+      setLoading(false);
+      return;
+    }
     async function fetchDashboard() {
       try {
         const res = await apiClient.get('/reports/summary');
@@ -107,7 +114,19 @@ export const DashboardPage: React.FC = () => {
 
     fetchDashboard();
     fetchRecentAudit();
-  }, []);
+  }, [isAdmin]);
+
+  if (!isAdmin) {
+    return <div className="space-y-4">
+      <h1 className="text-xl font-bold text-slate-900">Bảng điều khiển ACM</h1>
+      <div className="rounded-xl border border-blue-200 bg-blue-50 p-5 text-sm text-blue-900">
+        Số liệu Dashboard quản trị và Audit Log chỉ dành cho ADMIN. Bạn vẫn có thể tra cứu linh kiện và thực hiện nghiệp vụ được phân quyền.
+      </div>
+      <button className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white" onClick={() => navigate('/borrow-return')}>
+        Mở Mượn & Trả
+      </button>
+    </div>;
+  }
 
   const kpis = data.kpis;
   const availablePercentage = kpis.totalOnHand > 0 

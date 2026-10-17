@@ -43,7 +43,7 @@ export const AuditLogsPage: React.FC = () => {
   // Modal inspection
   const [selectedLog, setSelectedLog] = useState<AuditLogResponse | null>(null);
 
-  const isAuthorized = user?.role === 'ADMIN' || user?.role === 'LAB_MANAGER';
+  const isAuthorized = user?.role === 'ADMIN';
 
   useEffect(() => {
     if (isAuthorized) {
@@ -128,7 +128,7 @@ export const AuditLogsPage: React.FC = () => {
           <Lock className="mx-auto h-12 w-12 text-rose-500 mb-3" />
           <h3 className="text-sm font-bold text-rose-900">Giới hạn Quyền Truy Cập (Access Denied)</h3>
           <p className="mt-1 text-xs text-rose-700 max-w-md mx-auto">
-            Chức năng Nhật ký Hoạt động và Kiểm toán chỉ dành riêng cho Quản trị viên (ADMIN) và Quản lý phòng Lab (LAB_MANAGER) theo tiêu chuẩn bảo mật RBAC của hệ thống ACM.
+            Chức năng Nhật ký Hoạt động và Kiểm toán chỉ dành cho Quản trị viên (ADMIN) theo chính sách hiện hành.
           </p>
         </div>
       </div>
