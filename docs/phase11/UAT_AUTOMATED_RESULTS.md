@@ -31,9 +31,26 @@ Cột trạng thái theo thứ tự **(OnHand, Reserved, Borrowed, Quarantined, 
 
 **Đối chiếu cuối:** 3 ReturnTransaction, 5 StockMovement (1 nhập + 1 bàn giao + 3 trả), Audit Log của BorrowRequest tối thiểu 6 mục; `returnedQuantity=4`; tổng `quantityDelta=9` khớp `onHand=9`.
 
-## 3. Những gì chưa nghiệm thu
+## 3. Phase 11B — Bổ sung cổng kiểm tra nghiệp vụ (17/10/2026)
 
-- [ ] QA/người dùng chạy bộ 18 kịch bản UAT thủ công trên môi trường test cô lập (UAT-08,09,12–18 chưa được bộ ledger chuyên biệt kiểm chứng; một số có coverage E2E khác).
+**Kết quả đã xác minh:** [GitHub Actions run 38999290555](https://github.com/acmhtql-sys/ACM_QLLK/actions/runs/38999290555), commit `21c0ce6`, **353/353 bài PASS**, static staging preflight **16/16 PASS**. Run này gồm 135 Shared Unit Tests, 171 API Unit Tests, 11 Web Unit Tests, 29 Integration/E2E Tests, 1 Phase 11 ledger UAT và **6 Phase 11B gates**. Hai artifact `phase11-ledger-evidence` và `phase11b-gates-evidence` đã được upload thành công.
+
+| ID tự động | Kiểm tra trên PostgreSQL cô lập | Kết quả |
+|---|---|---|
+| UAT-08 | Duyệt phiếu mượn 4 rồi hủy, `reserved` giảm 4 → 0, `onHand` vẫn 10, trạng thái reservation `RELEASED` | PASS |
+| UAT-09 | Yêu cầu 99 khi chỉ có 10; duyệt bị từ chối 400, phiếu vẫn `PENDING`, không tạo reservation | PASS |
+| UAT-15 | Sinh viên thứ hai không xem/hủy/liệt kê phiếu mượn của sinh viên thứ nhất (403/403/không xuất hiện) | PASS |
+| UAT-12 | Hai kho cùng bàn giao 1 đơn vị, trả lại không có phân bổ nguồn bị từ chối 409, số dư hai kho và ReturnTransaction không đổi | PASS |
+| UAT-16/18 (một phần) | Truy vết CREATE–APPROVE–CANCEL với actor/timestamp, đọc một bản ghi Audit Log bằng ADMIN, LAB_MANAGER và STUDENT bị chặn đọc; TECHNICIAN bị chặn Reports | PASS trong phạm vi kiểm thử |
+| UAT-17 | Dashboard KPI tổng tăng đúng `onHand+10`, `borrowed+2`, `available+10`; hai dòng Inventory Report khớp sổ kho; người không phải ADMIN bị từ chối xem Summary | PASS |
+
+**An toàn dữ liệu:** test yêu cầu URL local + `NODE_ENV=test`, xác nhận `current_database()` chính xác, chỉ tạo fixture riêng và xuất bằng chứng không chứa mật khẩu/token. Artifact chỉ chứa tên case, kết quả, mô tả kiểm tra và trạng thái dọn fixture. Không có kết nối Cloud.
+
+**Điều kiện còn lại:** API/DB tự động không thay thế QA chạy thử Web. UAT-16 chỉ mới xác nhận log của vòng tạo/duyệt/hủy; kiểm tra đầy đủ log bàn giao/trả và báo cáo vận hành vẫn thuộc vòng UAT thủ công. Chính sách ADMIN-only hiện hành cần chủ sản phẩm phê duyệt.
+
+## 4. Những gì chưa nghiệm thu
+
+- [ ] QA/người dùng chạy bộ 18 kịch bản UAT thủ công trên môi trường test cô lập (một số đã có Phase 11B API/DB coverage, nhưng chưa có biên bản QA thủ công).
 - [ ] Xác nhận mô hình phân quyền Reports/Audit Logs ADMIN-only của MVP.
 - [ ] Kiểm tra chất lượng giao diện, lỗi mạng, truy cập qua trình duyệt, trải nghiệm người dùng thực.
 - [ ] Cloud read-only smoke sau khi có phê duyệt độc lập; chưa triển khai Supabase/Render/Vercel.
