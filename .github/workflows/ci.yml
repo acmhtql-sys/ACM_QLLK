@@ -102,5 +102,10 @@ jobs:
       - name: Apply Migrations to CI Test Database
         run: npx prisma migrate deploy --schema=apps/api/prisma/schema.prisma
 
+      # Populate only the isolated CI database with fixtures required by E2E tests.
+      # seedTestDb.ts verifies both configured URL and connected database identity.
+      - name: Seed isolated CI Test Database
+        run: npm run prisma:seed:test
+
       - name: Run Integration & E2E Tests
         run: npm run test:integration
