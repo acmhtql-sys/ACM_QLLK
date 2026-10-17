@@ -85,13 +85,13 @@ export function formatAuditLogResponse(log: any): AuditLogResponse {
 export class AuditLogsService {
   /**
    * Lists audit logs with advanced filtering, full sanitization and pagination.
-   * RBAC: Restricted to ADMIN and LAB_MANAGER.
+   * RBAC: Restricted to ADMIN only (same policy as the API router).
    */
   async listAuditLogs(
     query: QueryAuditLogsInput,
     currentUser: AuthenticatedUser
   ): Promise<PaginatedResponse<AuditLogResponse>> {
-    if (currentUser.role !== UserRole.ADMIN && currentUser.role !== UserRole.LAB_MANAGER) {
+    if (currentUser.role !== UserRole.ADMIN) {
       throw new AppError('Bạn không có quyền truy cập nhật ký kiểm toán hệ thống', 403);
     }
 
@@ -176,7 +176,7 @@ export class AuditLogsService {
    * Retrieves single audit log by ID with sanitized details.
    */
   async getAuditLogById(id: string, currentUser: AuthenticatedUser): Promise<AuditLogResponse> {
-    if (currentUser.role !== UserRole.ADMIN && currentUser.role !== UserRole.LAB_MANAGER) {
+    if (currentUser.role !== UserRole.ADMIN) {
       throw new AppError('Bạn không có quyền truy cập nhật ký kiểm toán hệ thống', 403);
     }
 

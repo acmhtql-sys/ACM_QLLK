@@ -116,6 +116,18 @@ jobs:
       - name: Phase 11 Isolated Ledger UAT (PostgreSQL test only)
         run: npm run test:uat:ledger
 
+      - name: Phase 11B Isolated UAT Gates (PostgreSQL test only)
+        run: npm run test:uat:gates
+
+      - name: Upload Phase 11B UAT Gate Evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase11b-gates-evidence
+          path: apps/api/test-results/phase11b-gates-evidence.json
+          if-no-files-found: warn
+          retention-days: 7
+
       - name: Upload Phase 11 UAT Evidence
         if: always()
         uses: actions/upload-artifact@v4

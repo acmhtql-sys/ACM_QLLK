@@ -4,6 +4,8 @@
 
 > **Bằng chứng UAT tự động:** CI chạy `npm run test:uat:ledger` trên PostgreSQL `acm_inventory_test` cô lập. Artifact `phase11-ledger-evidence` ghi số dư trước/sau từng kịch bản. Đây chỉ là **API/DB rehearsal**, không phải UAT giao diện hay ký nghiệm thu thủ công. Các ô manual bên dưới vẫn để trống.
 
+> **Phase 11B API/DB gates:** CI sẽ chạy `npm run test:uat:gates` trên DB test riêng và tải artifact `phase11b-gates-evidence`. Bao phủ UAT-08,09,12,15,16,17 và quyền truy cập UAT-18. Đây là kiểm chứng tự động, không thay cho phần nghiệm thu thủ công.
+
 ## A. Tiền điều kiện và dữ liệu kiểm thử
 
 - [ ] QA dùng đúng commit PR #7, có tên người kiểm thử, ngày, phiên bản và ID chạy CI.

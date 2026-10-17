@@ -18,7 +18,8 @@
     "prisma:migrate": "prisma migrate dev",
     "prisma:migrate:test": "tsx scripts/migrateTestDb.ts",
     "prisma:seed:test": "tsx scripts/seedTestDb.ts",
-    "test:uat:ledger": "vitest run tests/uat.phase11.ledger.integration.test.ts"
+    "test:uat:ledger": "vitest run tests/uat.phase11.ledger.integration.test.ts",
+    "test:uat:gates": "vitest run tests/uat.phase11b.gates.integration.test.ts"
   },
   "dependencies": {
     "@acm/shared": "*",
