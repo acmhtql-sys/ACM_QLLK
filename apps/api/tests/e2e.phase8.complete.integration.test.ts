@@ -504,6 +504,57 @@ describe('ACM Phase 8 – Comprehensive Integration & E2E Acceptance Test Suite'
       expect(approveRes.body.message).toContain('Không đủ tồn kho khả dụng');
     });
 
+    it('TC-E2E-BORROW-08: concurrent approvals never reserve more than one available unit', async () => {
+      const item = await prisma.item.create({
+        data: {
+          code: `RACE-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+          name: 'Concurrent reservation test fixture',
+          categoryId: testCategoryId,
+          type: ItemType.CONSUMABLE,
+          unit: 'pcs',
+        },
+      });
+      cleanupItemIds.push(item.id);
+      await prisma.stockBalance.create({
+        data: { itemId: item.id, locationId: testLocationId, onHand: 1, reserved: 0 },
+      });
+
+      const now = new Date();
+      const expectedReturnDate = new Date(now.getTime() + 7 * 86400000);
+      const requestIds: string[] = [];
+      for (let i = 0; i < 2; i++) {
+        const created = await request(app).post('/api/v1/borrow-requests')
+          .set('Authorization', `Bearer ${studentToken}`)
+          .send({
+            purpose: 'PostgreSQL parallel approval stock safety',
+            expectedBorrowDate: now.toISOString(),
+            expectedReturnDate: expectedReturnDate.toISOString(),
+            items: [{ itemId: item.id, quantity: 1 }],
+          });
+        expect(created.status).toBe(201);
+        requestIds.push(created.body.data.id);
+        cleanupBorrowRequestIds.push(created.body.data.id);
+      }
+
+      const results = await Promise.all(requestIds.map((id) =>
+        request(app).patch(`/api/v1/borrow-requests/${id}/approve`)
+          .set('Authorization', `Bearer ${managerToken}`).send({})
+      ));
+      expect(results.filter((result) => result.status === 200)).toHaveLength(1);
+      expect(results.filter((result) => [400, 409].includes(result.status))).toHaveLength(1);
+
+      const balance = await prisma.stockBalance.findUnique({
+        where: { itemId_locationId: { itemId: item.id, locationId: testLocationId } },
+      });
+      expect(balance?.onHand).toBe(1);
+      expect(balance?.reserved).toBe(1);
+      expect(balance!.onHand - balance!.reserved - balance!.quarantined - balance!.kitAllocated).toBe(0);
+      const reservations = await prisma.stockReservation.findMany({
+        where: { borrowRequestId: { in: requestIds }, status: 'ACTIVE' },
+      });
+      expect(reservations.reduce((sum, reservation) => sum + reservation.quantity, 0)).toBe(1);
+    }, 30_000);
+
     it('TC-E2E-BORROW-03: LAB_MANAGER approves request, placing items into reserved stock', async () => {
       const res = await request(app)
         .patch(`/api/v1/borrow-requests/${testBorrowRequestId}/approve`)
