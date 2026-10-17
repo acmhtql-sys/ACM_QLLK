@@ -193,6 +193,34 @@ export async function generateReturnTransactionNumber(
   return `RT-${dateStr}-${Date.now().toString().slice(-4)}`;
 }
 
+/**
+ * Reserve, release, handover and return involve read/modify/write across
+ * StockBalance and BorrowDetail. PostgreSQL SERIALIZABLE detects conflicting
+ * concurrent snapshots instead of accepting overbooking/double returns.
+ * Do not retry the entire operation implicitly: the caller can submit again
+ * after re-reading current stock and request state.
+ */
+async function runBorrowTransaction<T>(
+  fn: (tx: Prisma.TransactionClient) => Promise<T>
+): Promise<T> {
+  try {
+    return await prisma.$transaction(fn, {
+      isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+      maxWait: 10_000,
+      timeout: 15_000,
+    });
+  } catch (error: unknown) {
+    if (typeof error === 'object' && error !== null && 'code' in error &&
+        error.code === 'P2034') {
+      throw new AppError(
+        'Giao dịch kho đang được cập nhật đồng thời. Vui lòng tải lại tồn kho và thử lại',
+        409
+      );
+    }
+    throw error;
+  }
+}
+
 export class BorrowService {
   /**
    * Creates a new BorrowRequest with validation of available stock and dates.
@@ -256,7 +284,7 @@ export class BorrowService {
 
     const requestNumber = await generateBorrowRequestNumber(prisma);
 
-    const created = await prisma.$transaction(async (tx) => {
+    const created = await runBorrowTransaction(async (tx) => {
       const borrowReq = await tx.borrowRequest.create({
         data: {
           requestNumber,
@@ -315,7 +343,7 @@ export class BorrowService {
       );
     }
 
-    const updated = await prisma.$transaction(async (tx) => {
+    const updated = await runBorrowTransaction(async (tx) => {
       const req = await tx.borrowRequest.findUnique({
         where: { id },
         include: {
@@ -435,7 +463,7 @@ export class BorrowService {
       );
     }
 
-    const updated = await prisma.$transaction(async (tx) => {
+    const updated = await runBorrowTransaction(async (tx) => {
       const req = await tx.borrowRequest.findUnique({ where: { id } });
       if (!req) {
         throw new AppError('Phiếu mượn không tồn tại', 404);
@@ -489,7 +517,7 @@ export class BorrowService {
     input: CancelBorrowRequestInput,
     currentUser: AuthenticatedUser
   ): Promise<BorrowRequestResponse> {
-    const updated = await prisma.$transaction(async (tx) => {
+    const updated = await runBorrowTransaction(async (tx) => {
       const req = await tx.borrowRequest.findUnique({
         where: { id },
         include: { reservations: true },
@@ -601,7 +629,7 @@ export class BorrowService {
       );
     }
 
-    const updated = await prisma.$transaction(async (tx) => {
+    const updated = await runBorrowTransaction(async (tx) => {
       const req = await tx.borrowRequest.findUnique({
         where: { id },
         include: {
@@ -739,7 +767,7 @@ export class BorrowService {
       );
     }
 
-    const result = await prisma.$transaction(async (tx) => {
+    const result = await runBorrowTransaction(async (tx) => {
       const req = await tx.borrowRequest.findUnique({
         where: { id },
         include: {
