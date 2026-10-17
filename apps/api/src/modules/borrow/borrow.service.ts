@@ -852,47 +852,41 @@ export class BorrowService {
           data: { returnedQuantity: { increment: returnItem.returnedQuantity } },
         });
 
-        // Determine destination location for stock
-        let destinationLocationId = returnItem.locationId;
-        if (!destinationLocationId) {
-          const matchingReservation = req.reservations.find((r) => r.itemId === detail.itemId);
-          destinationLocationId = matchingReservation?.locationId;
-        }
-
-        if (!destinationLocationId) {
-          const firstBalance = await tx.stockBalance.findFirst({
-            where: { itemId: detail.itemId },
-            select: { locationId: true },
-          });
-          destinationLocationId = firstBalance?.locationId;
-        }
-
-        if (!destinationLocationId) {
+        // StockBalance.borrowed is per location. Without a per-detail source
+        // allocation ledger, transferring borrowed stock between warehouses on
+        // return would create or strand units. Fail closed until supported.
+        const sourceLocations = [...new Set(
+          req.reservations
+            .filter((r) => r.itemId === detail.itemId && r.status === ReservationStatus.FULFILLED)
+            .map((r) => r.locationId)
+        )];
+        if (sourceLocations.length !== 1) {
           throw new AppError(
-            `Không xác định được vị trí kho để hoàn trả cho linh kiện '${detail.item?.name || detail.itemId}'`,
-            400
+            'Không thể xác định duy nhất kho nguồn của linh kiện đang mượn. Cần đối soát trước khi hoàn trả',
+            409
           );
         }
+        const sourceLocationId = sourceLocations[0];
+        if (returnItem.locationId && returnItem.locationId !== sourceLocationId) {
+          throw new AppError(
+            'Chưa hỗ trợ trả linh kiện sang kho khác. Vui lòng hoàn trả về kho đã bàn giao',
+            409
+          );
+        }
+        const destinationLocationId = sourceLocationId;
 
-        // Lock / fetch StockBalance
-        let bal = await tx.stockBalance.findUnique({
+        // Never create a new balance or silently cap the reduction in borrowed.
+        // A mismatch is evidence of unreconciled physical or logical stock.
+        const bal = await tx.stockBalance.findUnique({
           where: {
             itemId_locationId: { itemId: detail.itemId, locationId: destinationLocationId },
           },
         });
-
-        if (!bal) {
-          bal = await tx.stockBalance.create({
-            data: {
-              itemId: detail.itemId,
-              locationId: destinationLocationId,
-              onHand: 0,
-              reserved: 0,
-              quarantined: 0,
-              kitAllocated: 0,
-              borrowed: 0,
-            },
-          });
+        if (!bal || bal.borrowed < returnItem.returnedQuantity) {
+          throw new AppError(
+            'Tồn kho đang mượn tại kho nguồn không đủ để ghi nhận hoàn trả. Cần đối soát số liệu',
+            409
+          );
         }
 
         const onHandBefore = bal.onHand;
@@ -903,7 +897,7 @@ export class BorrowService {
           await tx.stockBalance.update({
             where: { id: bal.id },
             data: {
-              borrowed: { decrement: Math.min(bal.borrowed, returnItem.returnedQuantity) },
+              borrowed: { decrement: returnItem.returnedQuantity },
               onHand: { increment: returnItem.returnedQuantity },
             },
           });
@@ -927,7 +921,7 @@ export class BorrowService {
           await tx.stockBalance.update({
             where: { id: bal.id },
             data: {
-              borrowed: { decrement: Math.min(bal.borrowed, returnItem.returnedQuantity) },
+              borrowed: { decrement: returnItem.returnedQuantity },
               onHand: { increment: returnItem.returnedQuantity },
               quarantined: { increment: returnItem.returnedQuantity },
             },
@@ -952,7 +946,7 @@ export class BorrowService {
           await tx.stockBalance.update({
             where: { id: bal.id },
             data: {
-              borrowed: { decrement: Math.min(bal.borrowed, returnItem.returnedQuantity) },
+              borrowed: { decrement: returnItem.returnedQuantity },
             },
           });
 
