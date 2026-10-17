@@ -33,7 +33,7 @@ async function mockApi(page: Page) {
       return;
     }
     const data = path.endsWith('/borrow-requests') ? rows
-      : path.endsWith('/items') || path.endsWith('/users') ? { items: [] } : [];
+      : path.endsWith('/items') ? [{ id: '00000000-0000-4000-8000-000000000201', code: 'UI-TEST-ITEM', name: 'Linh kiện UAT', unit: 'pcs', available: 10 }] : path.endsWith('/users') ? { items: [] } : [];
     await route.fulfill({ status: 200, headers, contentType: 'application/json',
       body: JSON.stringify({ success: true, data,
         meta: { totalItems: 0, page: 1, totalPages: 1 } }) });
@@ -88,8 +88,13 @@ for (const role of ['ADMIN','LAB_MANAGER','TECHNICIAN','STUDENT'] as const) {
       await expect(handover).toHaveCount(0);
       await expect(receive).toHaveCount(0);
     }
-    if (manager) await expect(page.getByRole('button',{name:'Hủy phiếu'})).toHaveCount(1);
-    else await expect(page.getByRole('button',{name:'Hủy phiếu'})).toHaveCount(0);
+    if (manager) await expect(page.getByRole('button',{name:'Hủy phiếu',exact:true})).toHaveCount(1);
+    else await expect(page.getByRole('button',{name:'Hủy phiếu',exact:true})).toHaveCount(0);
+    if (role === 'STUDENT') {
+      await expect(page.getByRole('button',{name:'Hủy phiếu của tôi'})).toHaveCount(1);
+    } else {
+      await expect(page.getByRole('button',{name:'Hủy phiếu của tôi'})).toHaveCount(0);
+    }
   });
 }
 for (const role of ['LAB_MANAGER','TECHNICIAN','STUDENT'] as const) {
@@ -116,4 +121,12 @@ test('STUDENT dashboard does not request restricted reports or audit logs', asyn
   await signInFixture(page, 'STUDENT', '/dashboard');
   await expect(page.getByText(/Số liệu Dashboard quản trị và Audit Log chỉ dành cho ADMIN/)).toBeVisible();
   expect(requests).toHaveLength(0);
+});
+
+test('STUDENT borrow creation modal loads item list from real API data-array contract', async ({ page }) => {
+  await signInFixture(page, 'STUDENT');
+  await page.getByRole('button', { name: 'Tạo phiếu mượn mới' }).first().click();
+  const modal = page.getByText('Đăng ký Phiếu mượn Linh kiện mới');
+  await expect(modal).toBeVisible();
+  await expect(page.getByRole('option', { name: /UI-TEST-ITEM/ })).toBeAttached();
 });
