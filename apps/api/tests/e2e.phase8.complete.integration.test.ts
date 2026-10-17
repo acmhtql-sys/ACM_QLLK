@@ -561,6 +561,32 @@ describe('ACM Phase 8 – Comprehensive Integration & E2E Acceptance Test Suite'
       expect(afterReturns).toBe(beforeReturns);
     });
 
+    it('TC-E2E-BORROW-07: rejects return to a different warehouse without changing source ledger', async () => {
+      const before = await prisma.stockBalance.findUnique({
+        where: { itemId_locationId: { itemId: testItemId, locationId: testLocationId } },
+        select: { onHand: true, borrowed: true, reserved: true },
+      });
+      const beforeReturns = await prisma.returnTransaction.count({
+        where: { borrowRequestId: testBorrowRequestId },
+      });
+      const invalidDestination = '00000000-0000-4000-8000-000000000001';
+      const res = await request(app)
+        .post(`/api/v1/borrow-requests/${testBorrowRequestId}/return`)
+        .set('Authorization', `Bearer ${techToken}`)
+        .send({
+          items: [{ borrowDetailId: testBorrowDetailId, returnedQuantity: 1,
+            condition: AssetCondition.GOOD, locationId: invalidDestination }],
+        });
+      expect(res.status).toBe(409);
+      const after = await prisma.stockBalance.findUnique({
+        where: { itemId_locationId: { itemId: testItemId, locationId: testLocationId } },
+        select: { onHand: true, borrowed: true, reserved: true },
+      });
+      expect(after).toEqual(before);
+      expect(await prisma.returnTransaction.count({ where: { borrowRequestId: testBorrowRequestId } }))
+        .toBe(beforeReturns);
+    });
+
     it('TC-E2E-BORROW-05: TECHNICIAN confirms return in GOOD condition and reconciles inventory stock', async () => {
       const res = await request(app)
         .post(`/api/v1/borrow-requests/${testBorrowRequestId}/return`)
