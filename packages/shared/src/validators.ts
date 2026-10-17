@@ -637,6 +637,20 @@ export const returnBorrowItemSchema = z.object({
 export const returnBorrowRequestSchema = z.object({
   items: z.array(returnBorrowItemSchema).min(1, 'Phải có ít nhất 1 linh kiện được hoàn trả'),
   notes: z.string().optional().nullable(),
+}).superRefine((data, ctx) => {
+  // Multiple rows for the same BorrowDetail can individually pass the remaining
+  // quantity guard but over-return when combined in a single transaction.
+  const seen = new Set<string>();
+  data.items.forEach((item, index) => {
+    if (seen.has(item.borrowDetailId)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['items', index, 'borrowDetailId'],
+        message: 'Một dòng phiếu mượn chỉ được hoàn trả một lần trong cùng giao dịch',
+      });
+    }
+    seen.add(item.borrowDetailId);
+  });
 });
 
 // Query Borrow Requests Schema

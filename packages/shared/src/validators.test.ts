@@ -1278,6 +1278,20 @@ describe('Shared Validators Tests', () => {
         expect(parsed.items[1].condition).toBe(AssetCondition.DAMAGED);
       });
 
+      it('rejects duplicate borrowDetailId rows in a single return payload', () => {
+        const payload = {
+          items: [
+            { borrowDetailId: validUUID, returnedQuantity: 2, condition: AssetCondition.GOOD },
+            { borrowDetailId: validUUID, returnedQuantity: 2, condition: AssetCondition.DAMAGED },
+          ],
+        };
+        const result = returnBorrowRequestSchema.safeParse(payload);
+        expect(result.success).toBe(false);
+        if (!result.success) {
+          expect(result.error.issues.some((issue) => issue.path.join('.') === 'items.1.borrowDetailId')).toBe(true);
+        }
+      });
+
       it('rejects when return items array is empty', () => {
         expect(returnBorrowRequestSchema.safeParse({ items: [] }).success).toBe(false);
       });

@@ -762,6 +762,16 @@ export class BorrowService {
         );
       }
 
+      // Prevent duplicate BorrowDetail rows even when service is called directly
+      // (outside the HTTP/Zod validation layer).
+      const seenReturnDetails = new Set<string>();
+      for (const returnItem of input.items) {
+        if (seenReturnDetails.has(returnItem.borrowDetailId)) {
+          throw new AppError('Không được hoàn trả trùng dòng chi tiết mượn trong một giao dịch', 400);
+        }
+        seenReturnDetails.add(returnItem.borrowDetailId);
+      }
+
       // Anti-double-return and quantity validation
       for (const returnItem of input.items) {
         const detail = req.details.find((d) => d.id === returnItem.borrowDetailId);
