@@ -1,10 +1,17 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { prisma } from '../../config/database';
 import { sendSuccess } from '../../shared/response';
+import { authenticate } from '../../middleware/auth';
+import { authorizeRoles } from '../../middleware/rbac';
+import { UserRole } from '@prisma/client';
 
 export const reportsRouter = Router();
 
-reportsRouter.get('/summary', async (_req: Request, res: Response, next: NextFunction) => {
+reportsRouter.get(
+  '/summary',
+  authenticate,
+  authorizeRoles(UserRole.ADMIN),
+  async (_req: Request, res: Response, next: NextFunction) => {
   try {
     const totalItems = await prisma.item.count();
     const balances = await prisma.stockBalance.findMany();
