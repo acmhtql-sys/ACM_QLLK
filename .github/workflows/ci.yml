@@ -128,6 +128,25 @@ jobs:
           if-no-files-found: warn
           retention-days: 7
 
+      # Real Chromium renders local Vite preview with fixture-only API responses.
+      - name: Install Chromium for isolated Web UI smoke
+        run: npx playwright install --with-deps chromium
+        working-directory: apps/web
+
+      - name: Phase 11C Browser UI RBAC smoke (mock API)
+        run: npm run test:e2e:mock --workspace=@acm/web
+
+      - name: Upload Phase 11C Web UI evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase11c-web-ui-evidence
+          path: |
+            apps/web/playwright-report
+            apps/web/test-results
+          if-no-files-found: warn
+          retention-days: 7
+
       - name: Upload Phase 11 UAT Evidence
         if: always()
         uses: actions/upload-artifact@v4
