@@ -4,6 +4,12 @@
 **Phạm vi:** Chỉ hoàn trả đúng kho nguồn (MVP)  
 **Kết quả hiện tại:** **CHƯA THỰC HIỆN UAT THỦ CÔNG — NO-GO**.
 
+## Cách sử dụng hai vòng kiểm định
+
+- **Vòng 1 – chủ dự án tự kiểm định:** điền kịch bản SELF-01…09 theo [kế hoạch tự kiểm định](./SELF_CHECK_AND_PILOT_PLAN.md); không ghi thành phản hồi từ người dùng cuối.
+- **Vòng 2 – người dùng thử trải nghiệm:** dùng [phiếu đánh giá trải nghiệm](./PILOT_FEEDBACK_FORM.md), tổng hợp lỗi và nhu cầu, rồi mới ký nghiệm thu nếu đủ điều kiện.
+- **Hiện tại:** cả hai vòng **CHƯA CHẠY**. Quyết định Go/No-Go giữ **NO-GO**.
+
 ## 1. Thông tin đợt chạy
 
 | Trường | Giá trị |
@@ -26,8 +32,10 @@ Tham chiếu [hướng dẫn thao tác](./MANUAL_UAT_RUNBOOK.md) và [18 UAT-ID 
 
 | Test ID | Vai trò | Kết quả thực tế / số dư trước-sau | Evidence ID/link đã làm sạch | Kết quả | Bug/owner |
 |---|---|---|---|---|---|
+| SELF-01..SELF-09 | Chủ dự án | Chưa tự kiểm định | — | **NOT RUN** | — |
 | WEB-01..WEB-16 | — | Chưa chạy | — | **NOT RUN** | — |
 | UAT-01..UAT-18 | — | Chưa chạy | — | **NOT RUN** | — |
+| PILOT (theo từng mã phiên) | Người dùng thử | Chưa mời/trải nghiệm | — | **NOT STARTED** | — |
 
 **Giá trị hợp lệ:** `PASS`, `FAIL`, `BLOCKED`, `NOT RUN`, `API-ONLY`. Không dùng `PASS` cho kịch bản chỉ có mock/chỉ có API khi yêu cầu chứng minh UI.
 

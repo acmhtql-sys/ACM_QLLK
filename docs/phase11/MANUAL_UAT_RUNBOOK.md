@@ -1,7 +1,7 @@
 # Phase 11D — Hướng dẫn UAT thủ công Web MVP ACM
 
 **Ngày soạn:** 17/10/2026 · **Trạng thái:** SẴN SÀNG PHÂN CÔNG, **CHƯA CHẠY UAT THỦ CÔNG**  
-**Đối tượng:** QA/người dùng nghiệp vụ, chủ sản phẩm, kỹ sư phụ trách môi trường test.
+**Đối tượng:** chủ dự án **tự kiểm định ở vòng 1**, sau đó người dùng thử **trải nghiệm ở vòng 2**; QA/kỹ sư hỗ trợ tùy phân công. Xem [kế hoạch hai vòng](./SELF_CHECK_AND_PILOT_PLAN.md) và [phiếu feedback](./PILOT_FEEDBACK_FORM.md).
 
 ## 1. Mốc kỹ thuật tham chiếu, không phải biên bản nghiệm thu
 
