@@ -42,3 +42,10 @@ These exact-file matches indicate that the cited core PR #3 borrow, inventory an
 
 ## Safety
 Leave PR #2, PR #3, PR #5 and PR #6 in Draft. Do not merge to `main`, rewrite branch history, run cloud database migrations or deploy production.
+
+
+## Follow-up findings: inventory ledger and returns (2026-10-17)
+- **Fixed in commit `e7cc0d4`:** a single return payload could contain the same `borrowDetailId` twice; individual checks could accept both and overcount returned units. The HTTP validator and direct service call now reject duplicates. Added Shared, service unit and PostgreSQL E2E regression checks.
+- **Needs further design/review — cross-location return:** return destination may be chosen from `locationId` supplied by caller, while `borrowed` is tracked per `itemId + locationId`. Using `decrement: Math.min(bal.borrowed, returnedQuantity)` can leave borrowed quantities attached to the handover location when items return elsewhere, or hide an insufficient borrowed balance. The current code should not be considered fully reconciled for cross-location returns; require a source-ledger allocation policy and new multi-location tests before staging sign-off.
+- **Concurrency residual risk:** tests TC-BR-24 and TC-BR-25 in the mock suite run first call then second call sequentially. They do not prove simultaneous approvals/returns are serializable on PostgreSQL. Add DB-backed concurrency tests and safeguards before production use.
+- **Policy gate:** ADMIN-only Audit Logs and reports are current code policy, not product-owner authorization to publish. Confirm the expected access matrix prior to merging.
