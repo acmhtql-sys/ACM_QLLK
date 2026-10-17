@@ -71,6 +71,30 @@ jobs:
       - name: Build All Workspaces
         run: npm run build
 
+      # env.ts intentionally refuses to run tests without an isolated .env.test.
+      # Create it only inside the ephemeral CI runner, never commit it or reuse cloud credentials.
+      - name: Create isolated test environment
+        shell: bash
+        run: |
+          test "$NODE_ENV" = "test"
+          test "$DATABASE_URL" = "postgresql://acm_user:test_password_ci@127.0.0.1:5432/acm_inventory_test?schema=public"
+          (umask 077; cat > apps/api/.env.test <<'EOF'
+          NODE_ENV=test
+          PORT=5000
+          API_PREFIX=/api/v1
+          CORS_ORIGIN=http://localhost:5173
+          DATABASE_URL=postgresql://acm_user:test_password_ci@127.0.0.1:5432/acm_inventory_test?schema=public
+          SHADOW_DATABASE_URL=postgresql://acm_user:test_password_ci@127.0.0.1:5432/acm_inventory_shadow?schema=public
+          JWT_SECRET=ci-pipeline-test-jwt-secret-not-for-production-2026
+          JWT_EXPIRES_IN=1d
+          BCRYPT_SALT_ROUNDS=10
+          LOG_LEVEL=debug
+          ACM_DEPLOYMENT_PROFILE=local_dev
+          STAGING_READ_ONLY=false
+          ALLOW_STAGING_AUTH_LOGIN=false
+          EOF
+          )
+
       - name: Run Unit Tests
         run: npm run test:unit
 
