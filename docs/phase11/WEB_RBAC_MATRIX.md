@@ -16,7 +16,7 @@
 
 **Đối chiếu API:** Backend cho LAB_MANAGER xem danh sách Users qua GET, nhưng Web hiện là trang quản trị có POST/PATCH chỉ ADMIN được làm. Để tránh hiện nút không được phép, Phase 11C ẩn toàn bộ trang Users với LAB_MANAGER. Nếu cần giao diện chỉ đọc, phải thiết kế riêng.
 
-**Giới hạn cần xử lý:** API cho STUDENT hủy phiếu của chính mình khi PENDING nhưng Web hiện chưa có nút chuyên biệt; đề xuất triển khai trước nghiệm thu Web. Các mục Kits, Settings và danh mục cần QA đối chiếu nút chỉnh sửa so với quyền Backend.
+**Đã bổ sung trong UI:** STUDENT có nút hủy phiếu PENDING của chính mình (kiểm tra `borrowerId` ở Web; API vẫn kiểm tra quyền độc lập). Form phiếu mượn đã được điều chỉnh đọc đúng mảng `data` từ GET `/items`. Các mục Kits, Settings và danh mục cần QA đối chiếu nút chỉnh sửa so với quyền Backend.
 
 **Cần xác nhận:** Chính sách Reports và Audit Logs ADMIN-only, quyền xem danh sách Users của LAB_MANAGER, phạm vi tự hủy phiếu STUDENT, và các quyền chỉnh sửa của TECHNICIAN.
 

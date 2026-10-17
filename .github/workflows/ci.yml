@@ -136,6 +136,31 @@ jobs:
       - name: Phase 11C Browser UI RBAC smoke (mock API)
         run: npm run test:e2e:mock --workspace=@acm/web
 
+      # Unlike fixture-only UI smoke, these checks use the running real API
+      # backed exclusively by the ephemeral PostgreSQL CI test database.
+      - name: Phase 11C Local Full-Stack Role Login (isolated DB)
+        shell: bash
+        run: |
+          test "$NODE_ENV" = "test"
+          test "$DATABASE_URL" = "postgresql://acm_user:test_password_ci@127.0.0.1:5432/acm_inventory_test?schema=public"
+          sed -i 's|^CORS_ORIGIN=.*|CORS_ORIGIN=http://127.0.0.1:4173|' apps/api/.env.test
+          node apps/api/dist/server.js > /tmp/acm-phase11c-api.log 2>&1 &
+          api_pid=$!
+          trap 'kill "$api_pid" 2>/dev/null || true' EXIT
+          ready=false
+          for i in $(seq 1 45); do
+            if curl -fsS http://127.0.0.1:5000/api/v1/health/readiness >/dev/null 2>&1; then
+              ready=true
+              break
+            fi
+            sleep 1
+          done
+          if [ "$ready" != true ]; then
+            echo "Local API did not become ready on isolated test PostgreSQL"
+            exit 1
+          fi
+          ACM_UI_LIVE=true npm run test:e2e:mock --workspace=@acm/web -- playwright/phase11.fullstack.spec.ts
+
       - name: Upload Phase 11C Web UI evidence
         if: always()
         uses: actions/upload-artifact@v4
