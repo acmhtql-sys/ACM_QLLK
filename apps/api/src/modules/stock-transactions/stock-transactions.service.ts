@@ -1317,6 +1317,8 @@ export class StockTransactionsService {
           const currentOnHand = row.onHand;
           const delta = line.actualOnHand - currentOnHand;
 
+          if (delta === 0) continue;
+
           await tx.stockBalance.update({
             where: { id: row.id },
             data: { onHand: line.actualOnHand },
@@ -1369,7 +1371,7 @@ export class StockTransactionsService {
             newValue: {
               transactionNumber,
               type: 'ADJUSTMENT',
-              itemCount: lines.length,
+              itemCount: detailsCreated.length,
               adjustedItemsCount: nonZeroDeltasCount,
               reason: input.reason || null,
             },
@@ -1387,7 +1389,7 @@ export class StockTransactionsService {
             type: stockTx.type,
             status: stockTx.status,
             notes: stockTx.notes,
-            itemCount: lines.length,
+            itemCount: detailsCreated.length,
             adjustedItemsCount: nonZeroDeltasCount,
             createdAt: stockTx.createdAt.toISOString(),
             details: detailsCreated.map((d) => ({
