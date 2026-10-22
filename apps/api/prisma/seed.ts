@@ -13,49 +13,39 @@ export function validateSeedEnvironment(
   nodeEnv?: string
 ): { allowed: boolean; reason?: string } {
   const envName = (nodeEnv || process.env.NODE_ENV || 'development').toLowerCase();
-  if (envName === 'production' || envName === 'staging') {
+  const profile = (process.env.ACM_DEPLOYMENT_PROFILE || 'local_dev').toLowerCase();
+
+  if (envName === 'production' || envName === 'staging' || envName === 'test') {
     return {
       allowed: false,
-      reason: `Thao tác seed dữ liệu demo bị từ chối tuyệt đối trong môi trường "${envName}" nhằm bảo vệ toàn vẹn dữ liệu.`,
+      reason: `Thao tác seed dữ liệu demo bị từ chối trong môi trường "${envName}".`,
+    };
+  }
+
+  if (profile !== 'local_dev') {
+    return {
+      allowed: false,
+      reason: `Seed dữ liệu demo chỉ được phép với ACM_DEPLOYMENT_PROFILE=local_dev (profile hiện tại: "${profile}").`,
     };
   }
 
   const url = databaseUrl || process.env.DATABASE_URL || '';
   if (!url) {
-    return {
-      allowed: false,
-      reason: 'DATABASE_URL không được định nghĩa.',
-    };
+    return { allowed: false, reason: 'DATABASE_URL không được định nghĩa.' };
   }
 
-  // Detect remote cloud databases
-  const remoteCloudPatterns = [
-    'supabase.co',
-    'pooler.supabase.com',
-    'amazonaws.com',
-    'render.com',
-    'neon.tech',
-    'cockroachlabs.cloud',
-  ];
-
-  const isRemoteCloud = remoteCloudPatterns.some((pattern) => url.toLowerCase().includes(pattern));
-  if (isRemoteCloud && process.env.ALLOW_REMOTE_SEED !== 'true') {
-    return {
-      allowed: false,
-      reason: `DATABASE_URL nhắm đến cơ sở dữ liệu Cloud từ xa (${url.split('@')[1] || 'remote host'}). Seed dữ liệu demo chỉ được phép chạy trên máy tính cục bộ (localhost/127.0.0.1).`,
-    };
+  let hostname: string;
+  try {
+    hostname = new URL(url).hostname.toLowerCase();
+  } catch {
+    return { allowed: false, reason: 'DATABASE_URL không hợp lệ.' };
   }
 
-  const isLocalHost =
-    url.includes('localhost') ||
-    url.includes('127.0.0.1') ||
-    url.includes('host.docker.internal') ||
-    url.includes('acm_inventory');
-
-  if (!isLocalHost && process.env.ALLOW_REMOTE_SEED !== 'true') {
+  const localHosts = new Set(['localhost', '127.0.0.1', '::1', '[::1]', 'host.docker.internal']);
+  if (!localHosts.has(hostname)) {
     return {
       allowed: false,
-      reason: 'DATABASE_URL không trỏ đến cơ sở dữ liệu cục bộ hợp lệ (localhost / 127.0.0.1).',
+      reason: 'Seed dữ liệu demo chỉ được phép trên database local (localhost/127.0.0.1/::1/host.docker.internal). Không được phép seed trên database từ xa hoặc Cloud.',
     };
   }
 
@@ -66,6 +56,11 @@ async function main() {
   const guard = validateSeedEnvironment(process.env.DATABASE_URL, process.env.NODE_ENV);
   if (!guard.allowed) {
     console.error(`\n❌ [SEED GUARD REJECTION] ${guard.reason}\n`);
+    process.exit(1);
+  }
+
+  if (process.env.ACM_ALLOW_DEMO_SEED !== 'true') {
+    console.error('\n❌ [SEED GUARD REJECTION] Set ACM_ALLOW_DEMO_SEED=true to explicitly confirm local demo seeding.\n');
     process.exit(1);
   }
 

@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import request from 'supertest';
+import bcrypt from 'bcryptjs';
 import { createApp } from '../src/app';
 import { prisma, checkDatabaseConnection } from '../src/config/database';
 import { ItemType, UserRole, AssetCondition } from '@acm/shared';
@@ -136,6 +137,99 @@ describe('ACM Phase 8 – Comprehensive Integration & E2E Acceptance Test Suite'
       expect(res.body.success).toBe(false);
     });
 
+    it('TC-E2E-AUTH-06: atomically locks an isolated account after five concurrent wrong passwords', async () => {
+      const role = await prisma.role.findUnique({ where: { name: 'STUDENT' } });
+      expect(role).not.toBeNull();
+      const password = 'ConcurrentValidPass2026!';
+      const email = `ci-lockout-${Date.now()}-${Math.random().toString(36).slice(2)}@acm.local`;
+      const user = await prisma.user.create({
+        data: {
+          email,
+          fullName: 'CI Concurrent Lockout Fixture',
+          role: 'STUDENT',
+          roleId: role!.id,
+          passwordHash: await bcrypt.hash(password, 4),
+        },
+      });
+
+      try {
+        // Exactly five requests from one IP: all pass the IP-level rate limit.
+        // The database counter must be incremented atomically, not lost in races.
+        const results = await Promise.all(
+          Array.from({ length: 5 }, () =>
+            request(app).post('/api/v1/auth/login').send({
+              email,
+              password: 'IncorrectConcurrentPass2026!',
+            })
+          )
+        );
+        expect(results.every((res) => res.status === 401 || res.status === 403)).toBe(true);
+        expect(results.filter((res) => res.status === 403)).toHaveLength(1);
+
+        const state = await prisma.user.findUnique({
+          where: { id: user.id },
+          select: { failedLoginAttempts: true, isLocked: true },
+        });
+        expect(state).toEqual({ failedLoginAttempts: 5, isLocked: true });
+
+        // Reset only the test rate limiter: a locked account must still reject
+        // the correct password from any new IP / rate-limit window.
+        loginRateLimiter.reset();
+        const afterLock = await request(app).post('/api/v1/auth/login').send({ email, password });
+        expect(afterLock.status).toBe(403);
+      } finally {
+        await prisma.user.delete({ where: { id: user.id } });
+        loginRateLimiter.reset();
+      }
+    }, 30_000);
+
+    it('TC-E2E-AUTH-07: valid login resets four concurrent failed attempts before lockout', async () => {
+      const role = await prisma.role.findUnique({ where: { name: 'STUDENT' } });
+      expect(role).not.toBeNull();
+      const password = 'ConcurrentRecoveryPass2026!';
+      const email = `ci-recovery-${Date.now()}-${Math.random().toString(36).slice(2)}@acm.local`;
+      const user = await prisma.user.create({
+        data: {
+          email,
+          fullName: 'CI Concurrent Recovery Fixture',
+          role: 'STUDENT',
+          roleId: role!.id,
+          passwordHash: await bcrypt.hash(password, 4),
+        },
+      });
+
+      try {
+        const failed = await Promise.all(
+          Array.from({ length: 4 }, () =>
+            request(app).post('/api/v1/auth/login').send({
+              email,
+              password: 'InvalidRecoveryPass2026!',
+            })
+          )
+        );
+        expect(failed.every((res) => res.status === 401)).toBe(true);
+
+        const before = await prisma.user.findUnique({
+          where: { id: user.id },
+          select: { failedLoginAttempts: true, isLocked: true },
+        });
+        expect(before).toEqual({ failedLoginAttempts: 4, isLocked: false });
+
+        const valid = await request(app).post('/api/v1/auth/login').send({ email, password });
+        expect(valid.status).toBe(200);
+        expect(valid.body.data.token).toBeTruthy();
+
+        const after = await prisma.user.findUnique({
+          where: { id: user.id },
+          select: { failedLoginAttempts: true, isLocked: true },
+        });
+        expect(after).toEqual({ failedLoginAttempts: 0, isLocked: false });
+      } finally {
+        await prisma.user.delete({ where: { id: user.id } });
+        loginRateLimiter.reset();
+      }
+    }, 30_000);
+
     it('TC-E2E-AUTH-03: returns current user profile via /me with authenticated token', async () => {
       const res = await request(app)
         .get('/api/v1/auth/me')
@@ -218,6 +312,40 @@ describe('ACM Phase 8 – Comprehensive Integration & E2E Acceptance Test Suite'
 
       expect(res.status).toBe(403);
       expect(res.body.success).toBe(false);
+    });
+
+    it('TC-E2E-RBAC-06: denies unauthenticated and STUDENT access to audit logs', async () => {
+      const endpoint = '/api/v1/audit-logs';
+      const anonymous = await request(app).get(endpoint);
+      expect(anonymous.status).toBe(401);
+      const student = await request(app).get(endpoint).set('Authorization', `Bearer ${studentToken}`);
+      expect(student.status).toBe(403);
+      const manager = await request(app).get(endpoint).set('Authorization', `Bearer ${managerToken}`);
+      expect(manager.status).toBe(403);
+      const admin = await request(app).get(endpoint).set('Authorization', `Bearer ${adminToken}`);
+      expect(admin.status).toBe(200);
+    });
+
+    it('TC-E2E-RBAC-07: restricts all sensitive report endpoints to ADMIN', async () => {
+      for (const endpoint of ['/api/v1/reports/summary', '/api/v1/reports/inventory', '/api/v1/reports/borrow-return', '/api/v1/reports/low-stock']) {
+        const student = await request(app).get(endpoint).set('Authorization', `Bearer ${studentToken}`);
+        expect(student.status).toBe(403);
+        const manager = await request(app).get(endpoint).set('Authorization', `Bearer ${managerToken}`);
+        expect(manager.status).toBe(403);
+      }
+      const summary = await request(app).get('/api/v1/reports/summary').set('Authorization', `Bearer ${adminToken}`);
+      expect(summary.status).toBe(200);
+    });
+
+    it('TC-E2E-RBAC-08: prevents STUDENT from invoking admin password reset', async () => {
+      const before = await prisma.user.findUnique({ where: { id: studentUserId }, select: { passwordHash: true } });
+      const forbidden = await request(app)
+        .post(`/api/v1/users/${studentUserId}/reset-password`)
+        .set('Authorization', `Bearer ${studentToken}`)
+        .send({ newPassword: 'ShouldNotChange-2026-strong' });
+      expect(forbidden.status).toBe(403);
+      const after = await prisma.user.findUnique({ where: { id: studentUserId }, select: { passwordHash: true } });
+      expect(after?.passwordHash).toBe(before?.passwordHash);
     });
 
     it('TC-E2E-RBAC-05: ADMIN has full authorized access to administrative endpoints', async () => {
@@ -376,6 +504,57 @@ describe('ACM Phase 8 – Comprehensive Integration & E2E Acceptance Test Suite'
       expect(approveRes.body.message).toContain('Không đủ tồn kho khả dụng');
     });
 
+    it('TC-E2E-BORROW-08: concurrent approvals never reserve more than one available unit', async () => {
+      const item = await prisma.item.create({
+        data: {
+          code: `RACE-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+          name: 'Concurrent reservation test fixture',
+          categoryId: testCategoryId,
+          type: ItemType.CONSUMABLE,
+          unit: 'pcs',
+        },
+      });
+      cleanupItemIds.push(item.id);
+      await prisma.stockBalance.create({
+        data: { itemId: item.id, locationId: testLocationId, onHand: 1, reserved: 0 },
+      });
+
+      const now = new Date();
+      const expectedReturnDate = new Date(now.getTime() + 7 * 86400000);
+      const requestIds: string[] = [];
+      for (let i = 0; i < 2; i++) {
+        const created = await request(app).post('/api/v1/borrow-requests')
+          .set('Authorization', `Bearer ${studentToken}`)
+          .send({
+            purpose: 'PostgreSQL parallel approval stock safety',
+            expectedBorrowDate: now.toISOString(),
+            expectedReturnDate: expectedReturnDate.toISOString(),
+            items: [{ itemId: item.id, quantity: 1 }],
+          });
+        expect(created.status).toBe(201);
+        requestIds.push(created.body.data.id);
+        cleanupBorrowRequestIds.push(created.body.data.id);
+      }
+
+      const results = await Promise.all(requestIds.map((id) =>
+        request(app).patch(`/api/v1/borrow-requests/${id}/approve`)
+          .set('Authorization', `Bearer ${managerToken}`).send({})
+      ));
+      expect(results.filter((result) => result.status === 200)).toHaveLength(1);
+      expect(results.filter((result) => [400, 409].includes(result.status))).toHaveLength(1);
+
+      const balance = await prisma.stockBalance.findUnique({
+        where: { itemId_locationId: { itemId: item.id, locationId: testLocationId } },
+      });
+      expect(balance?.onHand).toBe(1);
+      expect(balance?.reserved).toBe(1);
+      expect(balance!.onHand - balance!.reserved - balance!.quarantined - balance!.kitAllocated).toBe(0);
+      const reservations = await prisma.stockReservation.findMany({
+        where: { borrowRequestId: { in: requestIds }, status: 'ACTIVE' },
+      });
+      expect(reservations.reduce((sum, reservation) => sum + reservation.quantity, 0)).toBe(1);
+    }, 30_000);
+
     it('TC-E2E-BORROW-03: LAB_MANAGER approves request, placing items into reserved stock', async () => {
       const res = await request(app)
         .patch(`/api/v1/borrow-requests/${testBorrowRequestId}/approve`)
@@ -406,6 +585,59 @@ describe('ACM Phase 8 – Comprehensive Integration & E2E Acceptance Test Suite'
       expect(res.body.data.status).toBe('HANDED_OVER');
     });
 
+    it('TC-E2E-BORROW-06: rejects duplicate detail rows before stock or return history changes', async () => {
+      const beforeDetail = await prisma.borrowDetail.findUnique({
+        where: { id: testBorrowDetailId },
+        select: { returnedQuantity: true },
+      });
+      const beforeReturns = await prisma.returnTransaction.count({ where: { borrowRequestId: testBorrowRequestId } });
+
+      const rejected = await request(app)
+        .post(`/api/v1/borrow-requests/${testBorrowRequestId}/return`)
+        .set('Authorization', `Bearer ${techToken}`)
+        .send({
+          items: [
+            { borrowDetailId: testBorrowDetailId, returnedQuantity: 5, condition: AssetCondition.GOOD },
+            { borrowDetailId: testBorrowDetailId, returnedQuantity: 5, condition: AssetCondition.DAMAGED },
+          ],
+        });
+
+      expect(rejected.status).toBe(422);
+      const afterDetail = await prisma.borrowDetail.findUnique({
+        where: { id: testBorrowDetailId },
+        select: { returnedQuantity: true },
+      });
+      const afterReturns = await prisma.returnTransaction.count({ where: { borrowRequestId: testBorrowRequestId } });
+      expect(afterDetail?.returnedQuantity).toBe(beforeDetail?.returnedQuantity);
+      expect(afterReturns).toBe(beforeReturns);
+    });
+
+    it('TC-E2E-BORROW-07: rejects return to a different warehouse without changing source ledger', async () => {
+      const before = await prisma.stockBalance.findUnique({
+        where: { itemId_locationId: { itemId: testItemId, locationId: testLocationId } },
+        select: { onHand: true, borrowed: true, reserved: true },
+      });
+      const beforeReturns = await prisma.returnTransaction.count({
+        where: { borrowRequestId: testBorrowRequestId },
+      });
+      const invalidDestination = '00000000-0000-4000-8000-000000000001';
+      const res = await request(app)
+        .post(`/api/v1/borrow-requests/${testBorrowRequestId}/return`)
+        .set('Authorization', `Bearer ${techToken}`)
+        .send({
+          items: [{ borrowDetailId: testBorrowDetailId, returnedQuantity: 1,
+            condition: AssetCondition.GOOD, locationId: invalidDestination }],
+        });
+      expect(res.status).toBe(409);
+      const after = await prisma.stockBalance.findUnique({
+        where: { itemId_locationId: { itemId: testItemId, locationId: testLocationId } },
+        select: { onHand: true, borrowed: true, reserved: true },
+      });
+      expect(after).toEqual(before);
+      expect(await prisma.returnTransaction.count({ where: { borrowRequestId: testBorrowRequestId } }))
+        .toBe(beforeReturns);
+    });
+
     it('TC-E2E-BORROW-05: TECHNICIAN confirms return in GOOD condition and reconciles inventory stock', async () => {
       const res = await request(app)
         .post(`/api/v1/borrow-requests/${testBorrowRequestId}/return`)
@@ -433,6 +665,57 @@ describe('ACM Phase 8 – Comprehensive Integration & E2E Acceptance Test Suite'
       expect(itemRes.body.data.totalOnHand).toBe(20);
       expect(itemRes.body.data.available).toBe(20);
     });
+    it('TC-E2E-BORROW-09: concurrent duplicate returns cannot double-credit stock', async () => {
+      const item = await prisma.item.create({
+        data: {
+          code: `RETURN-RACE-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+          name: 'Concurrent return test fixture',
+          categoryId: testCategoryId,
+          type: ItemType.CONSUMABLE,
+          unit: 'pcs',
+        },
+      });
+      cleanupItemIds.push(item.id);
+      await prisma.stockBalance.create({
+        data: { itemId: item.id, locationId: testLocationId, onHand: 1, reserved: 0 },
+      });
+      const now = new Date();
+      const created = await request(app).post('/api/v1/borrow-requests')
+        .set('Authorization', `Bearer ${studentToken}`)
+        .send({
+          purpose: 'PostgreSQL parallel return stock safety',
+          expectedBorrowDate: now.toISOString(),
+          expectedReturnDate: new Date(now.getTime() + 7 * 86400000).toISOString(),
+          items: [{ itemId: item.id, quantity: 1 }],
+        });
+      expect(created.status).toBe(201);
+      const requestId = created.body.data.id;
+      const detailId = created.body.data.details[0].id;
+      cleanupBorrowRequestIds.push(requestId);
+
+      const approved = await request(app).patch(`/api/v1/borrow-requests/${requestId}/approve`)
+        .set('Authorization', `Bearer ${managerToken}`).send({});
+      expect(approved.status).toBe(200);
+      const handedOver = await request(app).patch(`/api/v1/borrow-requests/${requestId}/handover`)
+        .set('Authorization', `Bearer ${techToken}`).send({});
+      expect(handedOver.status).toBe(200);
+
+      const response = await Promise.all(Array.from({ length: 2 }, () =>
+        request(app).post(`/api/v1/borrow-requests/${requestId}/return`)
+          .set('Authorization', `Bearer ${techToken}`)
+          .send({ items: [{ borrowDetailId: detailId, returnedQuantity: 1,
+            condition: AssetCondition.GOOD }] })
+      ));
+      expect(response.filter((res) => res.status === 200)).toHaveLength(1);
+      expect(response.filter((res) => [400, 409].includes(res.status))).toHaveLength(1);
+      const balance = await prisma.stockBalance.findUnique({
+        where: { itemId_locationId: { itemId: item.id, locationId: testLocationId } },
+      });
+      expect(balance?.onHand).toBe(1);
+      expect(balance?.borrowed).toBe(0);
+      expect((await prisma.borrowDetail.findUnique({ where: { id: detailId } }))?.returnedQuantity).toBe(1);
+      expect(await prisma.returnTransaction.count({ where: { borrowRequestId: requestId } })).toBe(1);
+    }, 30_000);
   });
 
   // =========================================================================

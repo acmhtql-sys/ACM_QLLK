@@ -30,7 +30,10 @@
     "prisma:migrate:test": "npm run prisma:migrate:test --workspace=@acm/api",
     "prisma:seed:test": "npm run prisma:seed:test --workspace=@acm/api",
     "lint": "npm run lint --workspaces --if-present",
-    "ci": "npm run prisma:validate && npm run prisma:generate && npm run build:shared && npm run typecheck && npm run lint && npm run build && npm run test:unit"
+    "ci": "npm run prisma:validate && npm run prisma:generate && npm run build:shared && npm run typecheck && npm run lint && npm run build && npm run test:unit",
+    "preflight:staging": "node scripts/phase11-preflight.mjs",
+    "test:uat:ledger": "npm run test:uat:ledger --workspace=@acm/api",
+    "test:uat:gates": "npm run test:uat:gates --workspace=@acm/api"
   },
   "keywords": [
     "acm",

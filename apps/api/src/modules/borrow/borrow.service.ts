@@ -193,6 +193,34 @@ export async function generateReturnTransactionNumber(
   return `RT-${dateStr}-${Date.now().toString().slice(-4)}`;
 }
 
+/**
+ * Reserve, release, handover and return involve read/modify/write across
+ * StockBalance and BorrowDetail. PostgreSQL SERIALIZABLE detects conflicting
+ * concurrent snapshots instead of accepting overbooking/double returns.
+ * Do not retry the entire operation implicitly: the caller can submit again
+ * after re-reading current stock and request state.
+ */
+async function runBorrowTransaction<T>(
+  fn: (tx: Prisma.TransactionClient) => Promise<T>
+): Promise<T> {
+  try {
+    return await prisma.$transaction(fn, {
+      isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+      maxWait: 10_000,
+      timeout: 15_000,
+    });
+  } catch (error: unknown) {
+    if (typeof error === 'object' && error !== null && 'code' in error &&
+        error.code === 'P2034') {
+      throw new AppError(
+        'Giao dịch kho đang được cập nhật đồng thời. Vui lòng tải lại tồn kho và thử lại',
+        409
+      );
+    }
+    throw error;
+  }
+}
+
 export class BorrowService {
   /**
    * Creates a new BorrowRequest with validation of available stock and dates.
@@ -256,7 +284,7 @@ export class BorrowService {
 
     const requestNumber = await generateBorrowRequestNumber(prisma);
 
-    const created = await prisma.$transaction(async (tx) => {
+    const created = await runBorrowTransaction(async (tx) => {
       const borrowReq = await tx.borrowRequest.create({
         data: {
           requestNumber,
@@ -315,7 +343,7 @@ export class BorrowService {
       );
     }
 
-    const updated = await prisma.$transaction(async (tx) => {
+    const updated = await runBorrowTransaction(async (tx) => {
       const req = await tx.borrowRequest.findUnique({
         where: { id },
         include: {
@@ -435,7 +463,7 @@ export class BorrowService {
       );
     }
 
-    const updated = await prisma.$transaction(async (tx) => {
+    const updated = await runBorrowTransaction(async (tx) => {
       const req = await tx.borrowRequest.findUnique({ where: { id } });
       if (!req) {
         throw new AppError('Phiếu mượn không tồn tại', 404);
@@ -489,7 +517,7 @@ export class BorrowService {
     input: CancelBorrowRequestInput,
     currentUser: AuthenticatedUser
   ): Promise<BorrowRequestResponse> {
-    const updated = await prisma.$transaction(async (tx) => {
+    const updated = await runBorrowTransaction(async (tx) => {
       const req = await tx.borrowRequest.findUnique({
         where: { id },
         include: { reservations: true },
@@ -601,7 +629,7 @@ export class BorrowService {
       );
     }
 
-    const updated = await prisma.$transaction(async (tx) => {
+    const updated = await runBorrowTransaction(async (tx) => {
       const req = await tx.borrowRequest.findUnique({
         where: { id },
         include: {
@@ -739,7 +767,7 @@ export class BorrowService {
       );
     }
 
-    const result = await prisma.$transaction(async (tx) => {
+    const result = await runBorrowTransaction(async (tx) => {
       const req = await tx.borrowRequest.findUnique({
         where: { id },
         include: {
@@ -760,6 +788,16 @@ export class BorrowService {
           `Chỉ phiếu mượn 'Đang mượn (HANDED_OVER)' hoặc 'Đã trả một phần (PARTIALLY_RETURNED)' mới có thể nhận hoàn trả. Trạng thái hiện tại: '${req.status}'`,
           400
         );
+      }
+
+      // Prevent duplicate BorrowDetail rows even when service is called directly
+      // (outside the HTTP/Zod validation layer).
+      const seenReturnDetails = new Set<string>();
+      for (const returnItem of input.items) {
+        if (seenReturnDetails.has(returnItem.borrowDetailId)) {
+          throw new AppError('Không được hoàn trả trùng dòng chi tiết mượn trong một giao dịch', 400);
+        }
+        seenReturnDetails.add(returnItem.borrowDetailId);
       }
 
       // Anti-double-return and quantity validation
@@ -814,47 +852,41 @@ export class BorrowService {
           data: { returnedQuantity: { increment: returnItem.returnedQuantity } },
         });
 
-        // Determine destination location for stock
-        let destinationLocationId = returnItem.locationId;
-        if (!destinationLocationId) {
-          const matchingReservation = req.reservations.find((r) => r.itemId === detail.itemId);
-          destinationLocationId = matchingReservation?.locationId;
-        }
-
-        if (!destinationLocationId) {
-          const firstBalance = await tx.stockBalance.findFirst({
-            where: { itemId: detail.itemId },
-            select: { locationId: true },
-          });
-          destinationLocationId = firstBalance?.locationId;
-        }
-
-        if (!destinationLocationId) {
+        // StockBalance.borrowed is per location. Without a per-detail source
+        // allocation ledger, transferring borrowed stock between warehouses on
+        // return would create or strand units. Fail closed until supported.
+        const sourceLocations = [...new Set(
+          req.reservations
+            .filter((r) => r.itemId === detail.itemId && r.status === ReservationStatus.FULFILLED)
+            .map((r) => r.locationId)
+        )];
+        if (sourceLocations.length !== 1) {
           throw new AppError(
-            `Không xác định được vị trí kho để hoàn trả cho linh kiện '${detail.item?.name || detail.itemId}'`,
-            400
+            'Không thể xác định duy nhất kho nguồn của linh kiện đang mượn. Cần đối soát trước khi hoàn trả',
+            409
           );
         }
+        const sourceLocationId = sourceLocations[0];
+        if (returnItem.locationId && returnItem.locationId !== sourceLocationId) {
+          throw new AppError(
+            'Chưa hỗ trợ trả linh kiện sang kho khác. Vui lòng hoàn trả về kho đã bàn giao',
+            409
+          );
+        }
+        const destinationLocationId = sourceLocationId;
 
-        // Lock / fetch StockBalance
-        let bal = await tx.stockBalance.findUnique({
+        // Never create a new balance or silently cap the reduction in borrowed.
+        // A mismatch is evidence of unreconciled physical or logical stock.
+        const bal = await tx.stockBalance.findUnique({
           where: {
             itemId_locationId: { itemId: detail.itemId, locationId: destinationLocationId },
           },
         });
-
-        if (!bal) {
-          bal = await tx.stockBalance.create({
-            data: {
-              itemId: detail.itemId,
-              locationId: destinationLocationId,
-              onHand: 0,
-              reserved: 0,
-              quarantined: 0,
-              kitAllocated: 0,
-              borrowed: 0,
-            },
-          });
+        if (!bal || bal.borrowed < returnItem.returnedQuantity) {
+          throw new AppError(
+            'Tồn kho đang mượn tại kho nguồn không đủ để ghi nhận hoàn trả. Cần đối soát số liệu',
+            409
+          );
         }
 
         const onHandBefore = bal.onHand;
@@ -865,7 +897,7 @@ export class BorrowService {
           await tx.stockBalance.update({
             where: { id: bal.id },
             data: {
-              borrowed: { decrement: Math.min(bal.borrowed, returnItem.returnedQuantity) },
+              borrowed: { decrement: returnItem.returnedQuantity },
               onHand: { increment: returnItem.returnedQuantity },
             },
           });
@@ -889,7 +921,7 @@ export class BorrowService {
           await tx.stockBalance.update({
             where: { id: bal.id },
             data: {
-              borrowed: { decrement: Math.min(bal.borrowed, returnItem.returnedQuantity) },
+              borrowed: { decrement: returnItem.returnedQuantity },
               onHand: { increment: returnItem.returnedQuantity },
               quarantined: { increment: returnItem.returnedQuantity },
             },
@@ -914,7 +946,7 @@ export class BorrowService {
           await tx.stockBalance.update({
             where: { id: bal.id },
             data: {
-              borrowed: { decrement: Math.min(bal.borrowed, returnItem.returnedQuantity) },
+              borrowed: { decrement: returnItem.returnedQuantity },
             },
           });
 

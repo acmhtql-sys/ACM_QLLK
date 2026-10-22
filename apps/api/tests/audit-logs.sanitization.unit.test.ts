@@ -179,12 +179,12 @@ describe('Phase 6 – Audit Log & Credential Sanitization Unit Tests', () => {
       );
     });
 
-    it('allows LAB_MANAGER to list audit logs', async () => {
-      vi.mocked(prisma.auditLog.count).mockResolvedValueOnce(0);
-      vi.mocked(prisma.auditLog.findMany).mockResolvedValueOnce([]);
-
-      const result = await auditLogsService.listAuditLogs({}, managerUser as any);
-      expect(result.items).toHaveLength(0);
+    it('denies LAB_MANAGER direct audit service access with 403', async () => {
+      await expect(
+        auditLogsService.listAuditLogs({}, managerUser as any)
+      ).rejects.toThrow(new AppError('Bạn không có quyền truy cập nhật ký kiểm toán hệ thống', 403));
+      expect(prisma.auditLog.findMany).not.toHaveBeenCalled();
+      expect(prisma.auditLog.count).not.toHaveBeenCalled();
     });
 
     it('rejects STUDENT with 403 Forbidden', async () => {

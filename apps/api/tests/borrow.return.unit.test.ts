@@ -517,7 +517,7 @@ describe('ACM Phase 4 – Borrow & Return Management Test Suite', () => {
             item: { id: itemId, name: 'STM32F401' },
           },
         ],
-        reservations: [{ itemId, locationId }],
+        reservations: [{ itemId, locationId, status: ReservationStatus.FULFILLED }],
       });
 
       mockTx.returnTransaction.findUnique.mockResolvedValue(null);
@@ -614,7 +614,7 @@ describe('ACM Phase 4 – Borrow & Return Management Test Suite', () => {
             item: { id: itemId, name: 'STM32F401' },
           },
         ],
-        reservations: [{ itemId, locationId }],
+        reservations: [{ itemId, locationId, status: ReservationStatus.FULFILLED }],
       });
 
       mockTx.returnTransaction.findUnique.mockResolvedValue(null);
@@ -716,7 +716,7 @@ describe('ACM Phase 4 – Borrow & Return Management Test Suite', () => {
             item: { id: itemId, name: 'STM32F401' },
           },
         ],
-        reservations: [{ itemId, locationId }],
+        reservations: [{ itemId, locationId, status: ReservationStatus.FULFILLED }],
       });
 
       mockTx.returnTransaction.findUnique.mockResolvedValue(null);
@@ -906,7 +906,7 @@ describe('ACM Phase 4 – Borrow & Return Management Test Suite', () => {
             item: { id: itemId, name: 'Arduino Uno R3' },
           },
         ],
-        reservations: [{ itemId, locationId }],
+        reservations: [{ itemId, locationId, status: ReservationStatus.FULFILLED }],
       });
 
       await expect(
@@ -923,6 +923,27 @@ describe('ACM Phase 4 – Borrow & Return Management Test Suite', () => {
           technicianUser
         )
       ).rejects.toThrow('vượt quá số lượng đang mượn còn lại');
+    });
+
+    it('TC-BR-10B: Rejects duplicate detail rows before writing return transaction', async () => {
+      const mockTx = (prisma as any).__mockTx;
+      mockTx.borrowRequest.findUnique.mockResolvedValue({
+        id: borrowRequestId,
+        status: BorrowStatus.HANDED_OVER,
+        details: [{ id: borrowDetailId, itemId, quantity: 2, returnedQuantity: 0, item: { name: 'Arduino Uno R3' } }],
+        reservations: [{ itemId, locationId, status: ReservationStatus.FULFILLED }],
+      });
+
+      await expect(borrowService.returnBorrowRequest(
+        borrowRequestId,
+        { items: [
+          { borrowDetailId, returnedQuantity: 2, condition: AssetCondition.GOOD },
+          { borrowDetailId, returnedQuantity: 2, condition: AssetCondition.DAMAGED },
+        ] },
+        technicianUser
+      )).rejects.toThrow('Không được hoàn trả trùng dòng chi tiết mượn');
+      expect(mockTx.returnTransaction.create).not.toHaveBeenCalled();
+      expect(mockTx.stockBalance.update).not.toHaveBeenCalled();
     });
 
     it('TC-BR-11: Rejects return if request is not in HANDED_OVER or PARTIALLY_RETURNED state', async () => {
@@ -1251,7 +1272,7 @@ describe('ACM Phase 4 – Borrow & Return Management Test Suite', () => {
             item: { id: itemId, name: 'Cáp chuyển đổi UART' },
           },
         ],
-        reservations: [{ itemId, locationId }],
+        reservations: [{ itemId, locationId, status: ReservationStatus.FULFILLED }],
       }));
 
       mockTx.returnTransaction.findUnique.mockResolvedValue(null);

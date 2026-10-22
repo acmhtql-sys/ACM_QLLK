@@ -22,6 +22,9 @@ import { cloudStagingReadOnlyMiddleware, StagingReadOnlyOptions } from './middle
 export function createApp(options?: { stagingReadOnly?: StagingReadOnlyOptions }): Express {
   const app = express();
 
+  // Respect only the known cloud staging proxy; never trust arbitrary forwarded headers.
+  app.set('trust proxy', env.ACM_DEPLOYMENT_PROFILE === 'cloud_staging' ? 1 : false);
+
   // Basic security and parsing middleware
   app.use(helmet());
   app.use(cors({ origin: env.CORS_ORIGIN, credentials: true }));

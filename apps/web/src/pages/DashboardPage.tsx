@@ -18,6 +18,7 @@ import {
 import { KpiCard } from '../components/KpiCard';
 import { DemoDataNotice } from '../components/DemoDataNotice';
 import { apiClient } from '../services/api';
+import { useAuth } from '../hooks/useAuth';
 import {
   ResponsiveContainer,
   PieChart,
@@ -34,44 +35,20 @@ import {
 
 export const DashboardPage: React.FC = () => {
   const navigate = useNavigate();
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'ADMIN';
   const [loading, setLoading] = useState(true);
-  const [data, setData] = useState<any>({
-    kpis: {
-      totalItems: 7,
-      totalOnHand: 570,
-      totalAvailable: 438,
-      totalReserved: 28,
-      totalBorrowed: 67,
-      totalQuarantined: 5,
-      totalKitAllocated: 32,
-      activeBorrows: 3,
-      pendingApprovalBorrows: 1,
-      overdueBorrows: 0,
-      lowStockCount: 0,
-      outOfStockCount: 0,
-      totalKits: 4,
-      activeKits: 4,
-    },
-    distribution: [
-      { name: 'Khả dụng (Available)', value: 438, color: '#3b82f6' },
-      { name: 'Đang mượn (Borrowed)', value: 67, color: '#6366f1' },
-      { name: 'Giữ chỗ (Reserved)', value: 28, color: '#f59e0b' },
-      { name: 'Gán Kit (KitAllocated)', value: 32, color: '#10b981' },
-      { name: 'Cách ly lỗi (Quarantined)', value: 5, color: '#ef4444' },
-    ],
-    monthlyTrends: [
-      { month: 'T5', imports: 45, exports: 20, borrows: 15 },
-      { month: 'T6', imports: 60, exports: 30, borrows: 25 },
-      { month: 'T7', imports: 35, exports: 18, borrows: 20 },
-      { month: 'T8', imports: 80, exports: 40, borrows: 35 },
-      { month: 'T9', imports: 95, exports: 50, borrows: 48 },
-      { month: 'T10', imports: 110, exports: 65, borrows: 52 },
-    ],
-  });
+  const [data, setData] = useState<any>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
+  // Never fall back to fabricated stock or audit data if the real API fails.
   const [recentActivities, setRecentActivities] = useState<any[]>([]);
 
   useEffect(() => {
+    if (!isAdmin) {
+      setLoading(false);
+      return;
+    }
     async function fetchDashboard() {
       try {
         const res = await apiClient.get('/reports/summary');
@@ -88,7 +65,7 @@ export const DashboardPage: React.FC = () => {
           });
         }
       } catch (err) {
-        // Fallback remains active
+        setLoadError('Không thể tải Dashboard từ máy chủ. Vui lòng kiểm tra kết nối và thử lại.');
       } finally {
         setLoading(false);
       }
@@ -101,13 +78,36 @@ export const DashboardPage: React.FC = () => {
           setRecentActivities(res.data.data);
         }
       } catch {
-        // Non-admin or unauthenticated fallback
+        // Keep recent activities empty on failure; never display example events.
       }
     }
 
     fetchDashboard();
     fetchRecentAudit();
-  }, []);
+  }, [isAdmin]);
+
+  if (!isAdmin) {
+    return <div className="space-y-4">
+      <h1 className="text-xl font-bold text-slate-900">Bảng điều khiển ACM</h1>
+      <div className="rounded-xl border border-blue-200 bg-blue-50 p-5 text-sm text-blue-900">
+        Số liệu Dashboard quản trị và Audit Log chỉ dành cho ADMIN. Bạn vẫn có thể tra cứu linh kiện và thực hiện nghiệp vụ được phân quyền.
+      </div>
+      <button className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white" onClick={() => navigate('/borrow-return')}>
+        Mở Mượn & Trả
+      </button>
+    </div>;
+  }
+
+  if (loading) {
+    return <div role="status" className="rounded-lg border border-slate-200 p-6 text-sm text-slate-700">
+      Đang tải dữ liệu Dashboard...
+    </div>;
+  }
+  if (!data) {
+    return <div role="alert" className="rounded-lg border border-rose-200 bg-rose-50 p-6 text-sm text-rose-800">
+      {loadError || 'Không nhận được dữ liệu Dashboard từ máy chủ.'}
+    </div>;
+  }
 
   const kpis = data.kpis;
   const availablePercentage = kpis.totalOnHand > 0 
@@ -399,41 +399,11 @@ export const DashboardPage: React.FC = () => {
                   </tr>
                 ))
               ) : (
-                <>
-                  <tr className="hover:bg-slate-50/50">
-                    <td className="py-3 px-4 text-slate-500">Hôm nay, 10:15</td>
-                    <td className="py-3 px-4 font-medium text-slate-800">Nguyen Van A (Sinh viên)</td>
-                    <td className="py-3 px-4">
-                      <span className="inline-flex items-center rounded-md bg-blue-50 px-2 py-0.5 text-[11px] font-medium text-blue-700 border border-blue-200">
-                        BORROW_REQUEST_CREATE
-                      </span>
-                    </td>
-                    <td className="py-3 px-4 font-mono text-[11px] text-slate-600">BORROW_REQUEST (#BR-202610)</td>
-                    <td className="py-3 px-4 text-slate-500">Mượn 3 linh kiện: Arduino Uno, ESP32, Servo SG90</td>
-                  </tr>
-                  <tr className="hover:bg-slate-50/50">
-                    <td className="py-3 px-4 text-slate-500">Hôm nay, 09:30</td>
-                    <td className="py-3 px-4 font-medium text-slate-800">Lab Manager</td>
-                    <td className="py-3 px-4">
-                      <span className="inline-flex items-center rounded-md bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700 border border-emerald-200">
-                        STOCK_IMPORT
-                      </span>
-                    </td>
-                    <td className="py-3 px-4 font-mono text-[11px] text-slate-600">STOCK_TRANSACTION (#TX-0001)</td>
-                    <td className="py-3 px-4 text-slate-500">Nhập kho +20 ESP32 DevKit V1</td>
-                  </tr>
-                  <tr className="hover:bg-slate-50/50">
-                    <td className="py-3 px-4 text-slate-500">Hôm qua, 15:45</td>
-                    <td className="py-3 px-4 font-medium text-slate-800">Tran Thi B (Sinh viên)</td>
-                    <td className="py-3 px-4">
-                      <span className="inline-flex items-center rounded-md bg-indigo-50 px-2 py-0.5 text-[11px] font-medium text-indigo-700 border border-indigo-200">
-                        BORROW_HANDOVER
-                      </span>
-                    </td>
-                    <td className="py-3 px-4 font-mono text-[11px] text-slate-600">BORROW_REQUEST (#BR-202609)</td>
-                    <td className="py-3 px-4 text-slate-500">Bàn giao DHT22 và cảm biến khoảng cách HC-SR04</td>
-                  </tr>
-                </>
+                <tr>
+                  <td colSpan={5} className="py-5 px-4 text-center text-slate-500">
+                    Chưa có nhật ký hoạt động để hiển thị.
+                  </td>
+                </tr>
               )}
             </tbody>
           </table>

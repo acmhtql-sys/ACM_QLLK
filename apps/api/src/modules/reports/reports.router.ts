@@ -1,6 +1,8 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { sendSuccess } from '../../shared/response';
 import { authenticate } from '../../middleware/auth';
+import { authorizeRoles } from '../../middleware/rbac';
+import { UserRole } from '@prisma/client';
 import { reportsService } from './reports.service';
 import { queryReportsSchema } from '@acm/shared';
 import { AppError } from '../../shared/AppError';
@@ -14,6 +16,7 @@ export const reportsRouter = Router();
 reportsRouter.get(
   '/summary',
   authenticate,
+  authorizeRoles(UserRole.ADMIN),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const summary = await reportsService.getDashboardSummary(req.user!);
@@ -31,6 +34,7 @@ reportsRouter.get(
 reportsRouter.get(
   '/inventory',
   authenticate,
+  authorizeRoles(UserRole.ADMIN),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const parsed = queryReportsSchema.safeParse(req.query);
@@ -53,6 +57,7 @@ reportsRouter.get(
 reportsRouter.get(
   '/borrow-return',
   authenticate,
+  authorizeRoles(UserRole.ADMIN),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const report = await reportsService.getBorrowReturnReport(req.user!);
@@ -70,6 +75,7 @@ reportsRouter.get(
 reportsRouter.get(
   '/low-stock',
   authenticate,
+  authorizeRoles(UserRole.ADMIN),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const alerts = await reportsService.getLowStockAlerts(req.user!);

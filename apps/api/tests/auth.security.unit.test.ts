@@ -160,6 +160,18 @@ describe('Phase 1 – Authentication & Security Hardening Unit Tests', () => {
       expect(err.message).toContain('thiếu thông tin định danh');
     });
 
+    it('rejects a signed JWT containing a malformed UUID before querying Prisma', async () => {
+      const token = jwt.sign({ id: 'not-a-valid-uuid', role: UserRole.ADMIN }, secret);
+      const findUser = vi.spyOn(prisma.user, 'findUnique');
+      const { req, res, next, getError } = createMockContext({ authorization: `Bearer ${token}` });
+
+      await authenticate(req, res as any, next);
+
+      expect(getError()).toBeInstanceOf(AppError);
+      expect(getError().statusCode).toBe(401);
+      expect(findUser).not.toHaveBeenCalled();
+    });
+
     it('rejects request with 401 when user was deleted from database', async () => {
       const token = jwt.sign({ id: mockUserId, role: UserRole.STUDENT }, secret);
       const { req, res, next, getError } = createMockContext({
@@ -280,6 +292,18 @@ describe('Phase 1 – Authentication & Security Hardening Unit Tests', () => {
       expect(err.message).toContain('Lỗi kết nối cơ sở dữ liệu');
     });
 
+    it('fails closed with HTTP 500 when optional authentication cannot verify a user due to DB outage', async () => {
+      const token = jwt.sign({ id: mockUserId }, secret);
+      vi.spyOn(prisma.user, 'findUnique').mockRejectedValue(new Error('test DB unavailable'));
+      const { req, res, next, getError } = createMockContext({ authorization: `Bearer ${token}` });
+
+      await authenticateOptional(req, res as any, next);
+
+      expect(req.user).toBeUndefined();
+      expect(getError()).toBeInstanceOf(AppError);
+      expect(getError().statusCode).toBe(500);
+    });
+
     it('authenticateOptional attaches active user if valid, or leaves undefined if unauthenticated/invalid', async () => {
       // 1. Without token -> next() called, req.user is undefined
       const ctx1 = createMockContext();
@@ -387,6 +411,22 @@ describe('Phase 1 – Authentication & Security Hardening Unit Tests', () => {
       expect(ctxB.res.statusCode).toBe(200);
 
       limiter.destroy();
+    });
+
+    it('does not let a caller evade rate limits by spoofing X-Forwarded-For', () => {
+      const limiter = createLoginRateLimiter({ windowMs: 60_000, max: 1 });
+      try {
+        const first = createMockContext({ 'x-forwarded-for': '203.0.113.10' }, '192.0.2.42');
+        limiter(first.req, first.res as any, first.next);
+        expect(first.wasNextCalled()).toBe(true);
+
+        const spoofed = createMockContext({ 'x-forwarded-for': '198.51.100.99' }, '192.0.2.42');
+        limiter(spoofed.req, spoofed.res as any, spoofed.next);
+        expect(spoofed.wasNextCalled()).toBe(false);
+        expect(spoofed.res.statusCode).toBe(429);
+      } finally {
+        limiter.destroy();
+      }
     });
 
     it('resets hit counts when reset() is called', () => {
@@ -521,7 +561,7 @@ describe('Phase 1 – Authentication & Security Hardening Unit Tests', () => {
       expect(localCheck2.allowed).toBe(true);
     });
 
-    it('allows remote database seeding only when ALLOW_REMOTE_SEED=true is explicitly set', () => {
+    it('denies remote database seeding even if the legacy ALLOW_REMOTE_SEED flag is set', () => {
       const prevVal = process.env.ALLOW_REMOTE_SEED;
       try {
         process.env.ALLOW_REMOTE_SEED = 'true';
@@ -529,9 +569,11 @@ describe('Phase 1 – Authentication & Security Hardening Unit Tests', () => {
           'postgresql://postgres.sandbox:password@pooler.supabase.com:6543/postgres',
           'development'
         );
-        expect(check.allowed).toBe(true);
+        expect(check.allowed).toBe(false);
+        expect(check.reason).toContain('Cloud');
       } finally {
-        process.env.ALLOW_REMOTE_SEED = prevVal;
+        if (prevVal === undefined) delete process.env.ALLOW_REMOTE_SEED;
+        else process.env.ALLOW_REMOTE_SEED = prevVal;
       }
     });
   });

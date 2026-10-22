@@ -15,6 +15,14 @@ interface ClientRecord {
   resetAt: number;
 }
 
+type LoginRateLimiterMiddleware = ((req: Request, res: Response, next: NextFunction) => void) & {
+  reset: (targetKey?: string) => void;
+  getRecord: (targetKey: string) => ClientRecord | undefined;
+  destroy: () => void;
+};
+
+const MAX_TRACKED_CLIENTS = 10_000;
+
 /**
  * Creates an in-memory sliding-window rate limiter middleware for authentication endpoints.
  * Thread-safe for single Node.js runtime process, zero external dependencies.
@@ -27,15 +35,9 @@ export function createLoginRateLimiter(options: RateLimiterOptions = {}) {
     'Quá nhiều yêu cầu đăng nhập từ địa chỉ IP này. Vui lòng thử lại sau 15 phút.';
 
   const defaultKeyGen = (req: Request): string => {
-    // Prefer x-forwarded-for header (first IP if comma separated), fallback to req.ip or socket remoteAddress
-    const forwarded = req.headers['x-forwarded-for'];
-    if (forwarded) {
-      const firstIp = (Array.isArray(forwarded) ? forwarded[0] : forwarded)
-        .split(',')[0]
-        .trim();
-      if (firstIp) return firstIp;
-    }
-    return req.ip || req.socket?.remoteAddress || '127.0.0.1';
+    // Trust Express's resolved client IP only. Never consume X-Forwarded-For directly;
+    // clients can spoof it unless the reverse-proxy trust boundary is configured correctly.
+    return req.ip || req.socket?.remoteAddress || 'unknown';
   };
 
   const keyGen = options.keyGenerator || defaultKeyGen;
@@ -58,7 +60,7 @@ export function createLoginRateLimiter(options: RateLimiterOptions = {}) {
     cleanupInterval.unref();
   }
 
-  const middleware = (req: Request, res: Response, next: NextFunction): void => {
+  const middleware = ((req: Request, res: Response, next: NextFunction): void => {
     const key = keyGen(req);
     const now = Date.now();
 
@@ -66,6 +68,17 @@ export function createLoginRateLimiter(options: RateLimiterOptions = {}) {
 
     if (!record || now > record.resetAt) {
       // First request or window expired
+      if (record) hits.delete(key);
+      if (hits.size >= MAX_TRACKED_CLIENTS) {
+        // Bound memory use if an attacker distributes requests across many source IPs.
+        for (const [existingKey, existingRecord] of hits.entries()) {
+          if (now > existingRecord.resetAt) hits.delete(existingKey);
+        }
+        if (hits.size >= MAX_TRACKED_CLIENTS) {
+          const oldestKey = hits.keys().next().value;
+          if (oldestKey !== undefined) hits.delete(oldestKey);
+        }
+      }
       record = {
         count: 1,
         firstRequestAt: now,
@@ -99,7 +112,7 @@ export function createLoginRateLimiter(options: RateLimiterOptions = {}) {
     }
 
     next();
-  };
+  }) as LoginRateLimiterMiddleware;
 
   // Helper method to reset hit count (used in tests or manual unblock)
   middleware.reset = (targetKey?: string) => {

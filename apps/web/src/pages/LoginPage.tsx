@@ -5,8 +5,8 @@ import { apiClient } from '../services/api';
 import { ShieldCheck, Cpu, ArrowRight, AlertCircle, Clock, AlertTriangle } from 'lucide-react';
 
 export const LoginPage: React.FC = () => {
-  const [email, setEmail] = useState('admin@acm.local');
-  const [password, setPassword] = useState('ACM@dev2026!');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [sessionExpiredNotice, setSessionExpiredNotice] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -173,8 +173,8 @@ export const LoginPage: React.FC = () => {
             </button>
           </form>
 
-          {/* Quick Demo Credentials for Testing Roles */}
-          <div className="pt-4 border-t border-slate-100">
+          {/* Never ship demo credentials or shortcuts in built staging/production HTML. */}
+          {(import.meta.env.MODE === 'development' || import.meta.env.MODE === 'test') && <div className="pt-4 border-t border-slate-100">
             <div className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-2">
               Tài khoản mẫu theo vai trò (Click để chọn nhanh)
             </div>
@@ -212,7 +212,7 @@ export const LoginPage: React.FC = () => {
                 <div className="text-slate-500 font-mono text-[10px]">student@acm.local</div>
               </button>
             </div>
-          </div>
+          </div>}
         </div>
       </div>
     </div>

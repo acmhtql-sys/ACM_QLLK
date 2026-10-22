@@ -17,7 +17,7 @@ export const usersRouter = Router();
 
 function getRequestMetadata(req: Request) {
   return {
-    ipAddress: (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || req.ip,
+    ipAddress: req.ip,
     userAgent: req.headers['user-agent'],
   };
 }
@@ -146,11 +146,12 @@ usersRouter.patch(
 /**
  * POST /api/v1/users/:id/reset-password
  * Resets user password.
- * RBAC: ADMIN or the user themselves
+ * RBAC: ADMIN only; self-service password changes require the current password.
  */
 usersRouter.post(
   '/:id/reset-password',
   authenticate,
+  authorizeRoles(UserRole.ADMIN),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { id } = req.params;
