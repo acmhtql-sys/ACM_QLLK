@@ -64,12 +64,25 @@ export const AuditLogsPage: React.FC = () => {
       if (entityFilter) params.entity = entityFilter;
 
       const res = await apiClient.get('/audit-logs', { params });
-      if (res.data?.success && res.data.data) {
-        setLogs(res.data.data);
-        if (res.data.pagination) {
-          setPagination(res.data.pagination);
-        }
+      const payload = res.data?.data;
+
+      if (
+        res.data?.success !== true ||
+        !payload ||
+        !Array.isArray(payload.items) ||
+        !payload.meta ||
+        typeof payload.meta.totalItems !== 'number'
+      ) {
+        throw new Error('Cấu trúc dữ liệu Audit Logs không hợp lệ');
       }
+
+      setLogs(payload.items);
+      setPagination({
+        total: payload.meta.totalItems,
+        page: payload.meta.page,
+        limit: payload.meta.limit,
+        totalPages: payload.meta.totalPages,
+      });
     } catch (err: any) {
       setError(
         err?.response?.data?.message ||
@@ -191,18 +204,43 @@ export const AuditLogsPage: React.FC = () => {
               className="w-full rounded-lg border border-slate-200 px-3 py-2 text-xs focus:border-blue-500 focus:outline-none text-slate-700"
             >
               <option value="">-- Tất cả Hành động --</option>
-              <option value="USER_LOGIN">Đăng nhập (USER_LOGIN)</option>
-              <option value="ITEM_CREATE">Tạo linh kiện (ITEM_CREATE)</option>
-              <option value="ITEM_UPDATE">Cập nhật linh kiện (ITEM_UPDATE)</option>
-              <option value="ITEM_DELETE">Xóa linh kiện (ITEM_DELETE)</option>
-              <option value="BORROW_REQUEST_CREATE">Tạo phiếu mượn (BORROW_CREATE)</option>
-              <option value="BORROW_APPROVE">Phê duyệt mượn (BORROW_APPROVE)</option>
-              <option value="BORROW_HANDOVER">Bàn giao mượn (BORROW_HANDOVER)</option>
-              <option value="BORROW_RETURN">Nhận trả mượn (BORROW_RETURN)</option>
-              <option value="STOCK_ADJUSTMENT">Điều chỉnh kho (STOCK_ADJUSTMENT)</option>
-              <option value="STOCK_IMPORT">Nhập kho (STOCK_IMPORT)</option>
-              <option value="KIT_CREATE">Tạo Kit (KIT_CREATE)</option>
-              <option value="KIT_ALLOCATE">Phân bổ Kit (KIT_ALLOCATE)</option>
+              <optgroup label="Mượn và Trả">
+                <option value="CREATE">Tạo phiếu mượn (CREATE)</option>
+                <option value="APPROVE">Phê duyệt (APPROVE)</option>
+                <option value="REJECT">Từ chối (REJECT)</option>
+                <option value="CANCEL">Hủy phiếu (CANCEL)</option>
+                <option value="HANDOVER">Bàn giao (HANDOVER)</option>
+                <option value="RETURN">Hoàn trả (RETURN)</option>
+              </optgroup>
+              <optgroup label="Linh kiện và Thiết bị">
+                <option value="CREATE_ITEM">Tạo linh kiện</option>
+                <option value="UPDATE_ITEM">Cập nhật linh kiện</option>
+                <option value="DELETE_ITEM">Xóa linh kiện</option>
+              </optgroup>
+              <optgroup label="Giao dịch kho">
+                <option value="IMPORT_STOCK">Nhập kho</option>
+                <option value="EXPORT_STOCK">Xuất kho</option>
+                <option value="STOCK_TRANSFER">Chuyển kho</option>
+                <option value="STOCK_ADJUSTMENT">Điều chỉnh kho</option>
+              </optgroup>
+              <optgroup label="Hộp Kit">
+                <option value="CREATE_KIT">Tạo Kit</option>
+                <option value="UPDATE_KIT">Cập nhật Kit</option>
+                <option value="UPDATE_KIT_STATUS">Đổi trạng thái Kit</option>
+                <option value="DELETE_KIT">Xóa Kit</option>
+              </optgroup>
+              <optgroup label="Người dùng">
+                <option value="CREATE_USER">Tạo người dùng</option>
+                <option value="UPDATE_USER">Cập nhật người dùng</option>
+                <option value="UPDATE_USER_STATUS">Đổi trạng thái người dùng</option>
+                <option value="RESET_PASSWORD">Đặt lại mật khẩu</option>
+                <option value="USER_CHANGE_PASSWORD">Đổi mật khẩu</option>
+              </optgroup>
+              <optgroup label="Danh mục">
+                <option value="CATEGORY_CREATE">Tạo danh mục</option>
+                <option value="CATEGORY_UPDATE">Cập nhật danh mục</option>
+                <option value="CATEGORY_DELETE">Xóa danh mục</option>
+              </optgroup>
             </select>
           </div>
 
@@ -216,11 +254,11 @@ export const AuditLogsPage: React.FC = () => {
               className="w-full rounded-lg border border-slate-200 px-3 py-2 text-xs focus:border-blue-500 focus:outline-none text-slate-700"
             >
               <option value="">-- Tất cả Đối tượng --</option>
-              <option value="ITEM">Linh kiện (ITEM)</option>
-              <option value="BORROW_REQUEST">Phiếu mượn (BORROW_REQUEST)</option>
-              <option value="USER">Người dùng (USER)</option>
-              <option value="KIT">Hộp Kit (KIT)</option>
-              <option value="STOCK_TRANSACTION">Giao dịch kho (STOCK_TRANSACTION)</option>
+              <option value="BorrowRequest">Phiếu mượn (BorrowRequest)</option>
+              <option value="Item">Linh kiện (Item)</option>
+              <option value="StockTransaction">Giao dịch kho (StockTransaction)</option>
+              <option value="Kit">Hộp Kit (Kit)</option>
+              <option value="User">Người dùng (User)</option>
               <option value="CATEGORY">Danh mục (CATEGORY)</option>
             </select>
           </div>
