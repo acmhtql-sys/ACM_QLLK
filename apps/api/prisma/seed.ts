@@ -3,7 +3,67 @@ import * as bcrypt from 'bcryptjs';
 
 const prisma = new PrismaClient();
 
+/**
+ * Strict Environment Guard for Demo Seeding.
+ * Restricts seed execution strictly to authorized local development environments.
+ * Prevents accidental execution in staging, production, or against remote cloud databases (e.g. Supabase).
+ */
+export function validateSeedEnvironment(
+  databaseUrl?: string,
+  nodeEnv?: string
+): { allowed: boolean; reason?: string } {
+  const envName = (nodeEnv || process.env.NODE_ENV || 'development').toLowerCase();
+  const profile = (process.env.ACM_DEPLOYMENT_PROFILE || 'local_dev').toLowerCase();
+
+  if (envName === 'production' || envName === 'staging' || envName === 'test') {
+    return {
+      allowed: false,
+      reason: `Thao tác seed dữ liệu demo bị từ chối trong môi trường "${envName}".`,
+    };
+  }
+
+  if (profile !== 'local_dev') {
+    return {
+      allowed: false,
+      reason: `Seed dữ liệu demo chỉ được phép với ACM_DEPLOYMENT_PROFILE=local_dev (profile hiện tại: "${profile}").`,
+    };
+  }
+
+  const url = databaseUrl || process.env.DATABASE_URL || '';
+  if (!url) {
+    return { allowed: false, reason: 'DATABASE_URL không được định nghĩa.' };
+  }
+
+  let hostname: string;
+  try {
+    hostname = new URL(url).hostname.toLowerCase();
+  } catch {
+    return { allowed: false, reason: 'DATABASE_URL không hợp lệ.' };
+  }
+
+  const localHosts = new Set(['localhost', '127.0.0.1', '::1', '[::1]', 'host.docker.internal']);
+  if (!localHosts.has(hostname)) {
+    return {
+      allowed: false,
+      reason: 'Seed dữ liệu demo chỉ được phép trên database local (localhost/127.0.0.1/::1/host.docker.internal). Không được phép seed trên database từ xa hoặc Cloud.',
+    };
+  }
+
+  return { allowed: true };
+}
+
 async function main() {
+  const guard = validateSeedEnvironment(process.env.DATABASE_URL, process.env.NODE_ENV);
+  if (!guard.allowed) {
+    console.error(`\n❌ [SEED GUARD REJECTION] ${guard.reason}\n`);
+    process.exit(1);
+  }
+
+  if (process.env.ACM_ALLOW_DEMO_SEED !== 'true') {
+    console.error('\n❌ [SEED GUARD REJECTION] Set ACM_ALLOW_DEMO_SEED=true to explicitly confirm local demo seeding.\n');
+    process.exit(1);
+  }
+
   console.log('🌱 Starting ACM Database Seeding...');
 
   // 1. Roles
@@ -308,11 +368,13 @@ async function main() {
   console.log('🎉 Seeding successfully completed!');
 }
 
-main()
-  .catch((e) => {
-    console.error('❌ Seeding error:', e);
-    process.exit(1);
-  })
-  .finally(async () => {
-    await prisma.$disconnect();
-  });
+if (require.main === module || (process.argv[1] && process.argv[1].includes('seed'))) {
+  main()
+    .catch((e) => {
+      console.error('❌ Seeding error:', e);
+      process.exit(1);
+    })
+    .finally(async () => {
+      await prisma.$disconnect();
+    });
+}

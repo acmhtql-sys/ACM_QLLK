@@ -16,10 +16,14 @@ import { stockMovementsRouter } from './modules/stock-movements/stock-movements.
 import { borrowRouter } from './modules/borrow/borrow.router';
 import { reportsRouter } from './modules/reports/reports.router';
 import { auditLogsRouter } from './modules/audit-logs/audit-logs.router';
+import { kitsRouter } from './modules/kits/kits.router';
 import { cloudStagingReadOnlyMiddleware, StagingReadOnlyOptions } from './middleware/cloudStagingReadOnly';
 
 export function createApp(options?: { stagingReadOnly?: StagingReadOnlyOptions }): Express {
   const app = express();
+
+  // Respect only the known cloud staging proxy; never trust arbitrary forwarded headers.
+  app.set('trust proxy', env.ACM_DEPLOYMENT_PROFILE === 'cloud_staging' ? 1 : false);
 
   // Basic security and parsing middleware
   app.use(helmet());
@@ -49,6 +53,7 @@ export function createApp(options?: { stagingReadOnly?: StagingReadOnlyOptions }
   app.use(`${prefix}/stock-transactions`, stockTransactionsRouter);
   app.use(`${prefix}/stock-movements`, stockMovementsRouter);
   app.use(`${prefix}/borrow-requests`, borrowRouter);
+  app.use(`${prefix}/kits`, kitsRouter);
   app.use(`${prefix}/reports`, reportsRouter);
   app.use(`${prefix}/audit-logs`, auditLogsRouter);
 

@@ -1,25 +1,54 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import { apiClient } from '../services/api';
-import { ShieldCheck, Cpu, ArrowRight, AlertCircle } from 'lucide-react';
+import { ShieldCheck, Cpu, ArrowRight, AlertCircle, Clock, AlertTriangle } from 'lucide-react';
 
 export const LoginPage: React.FC = () => {
-  const [email, setEmail] = useState('admin@acm.local');
-  const [password, setPassword] = useState('ACM@dev2026!');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [sessionExpiredNotice, setSessionExpiredNotice] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const { login } = useAuth();
   const navigate = useNavigate();
 
+  useEffect(() => {
+    // Check if user was redirected due to 401 / session expiration
+    const notice = sessionStorage.getItem('acm_session_expired');
+    if (notice) {
+      setSessionExpiredNotice(notice);
+      sessionStorage.removeItem('acm_session_expired');
+    }
+  }, []);
+
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
+    setSessionExpiredNotice(null);
+
+    const trimmedEmail = email.trim();
+    if (!trimmedEmail) {
+      setError('Vui lòng nhập email đăng nhập');
+      return;
+    }
+
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(trimmedEmail)) {
+      setError('Định dạng email không hợp lệ (ví dụ: user@domain.com)');
+      return;
+    }
+
+    if (!password) {
+      setError('Vui lòng nhập mật khẩu');
+      return;
+    }
+
     setIsLoading(true);
 
     try {
-      const res = await apiClient.post('/auth/login', { email, password });
-      if (res.data.success) {
+      const res = await apiClient.post('/auth/login', { email: trimmedEmail, password });
+      if (res.data.success && res.data.data?.token) {
         login(res.data.data.token, res.data.data.user);
         navigate('/dashboard');
       } else {
@@ -28,25 +57,9 @@ export const LoginPage: React.FC = () => {
     } catch (err: any) {
       if (err.response) {
         setError(err.response.data?.message || 'Email hoặc mật khẩu không chính xác');
-        return;
+      } else {
+        setError('Không thể kết nối đến máy chủ backend (Network Error). Vui lòng kiểm tra lại dịch vụ API.');
       }
-      // In Phase 1 foundation, if API is not running yet, provide instant offline mock fallback
-      console.warn('API connection failed, falling back to local session', err);
-      const mockRole = email.includes('manager')
-        ? 'LAB_MANAGER'
-        : email.includes('tech')
-        ? 'TECHNICIAN'
-        : email.includes('student')
-        ? 'STUDENT'
-        : 'ADMIN';
-
-      login('mock-jwt-token-foundation-phase1', {
-        id: 'mock-user-id',
-        email,
-        fullName: email.split('@')[0].toUpperCase(),
-        role: mockRole as any,
-      });
-      navigate('/dashboard');
     } finally {
       setIsLoading(false);
     }
@@ -55,6 +68,8 @@ export const LoginPage: React.FC = () => {
   const fillCredentials = (userEmail: string) => {
     setEmail(userEmail);
     setPassword('ACM@dev2026!');
+    setError(null);
+    setSessionExpiredNotice(null);
   };
 
   return (
@@ -86,7 +101,7 @@ export const LoginPage: React.FC = () => {
         </div>
 
         <div className="text-xs text-slate-500">
-          © 2026 ACM Engineering Team. Phase 1 Project Foundation.
+          © 2026 ACM Engineering Team. Production Readiness Foundation.
         </div>
       </div>
 
@@ -99,6 +114,16 @@ export const LoginPage: React.FC = () => {
               Nhập tài khoản để truy cập hệ thống quản lý phòng Lab
             </p>
           </div>
+
+          {sessionExpiredNotice && (
+            <div className="flex items-start space-x-2 rounded-lg bg-amber-50 p-3.5 text-xs text-amber-800 border border-amber-200">
+              <Clock className="h-4 w-4 flex-shrink-0 text-amber-600 mt-0.5" />
+              <div>
+                <span className="font-semibold">Hết hạn phiên làm việc:</span>
+                <p className="mt-0.5 text-amber-700">{sessionExpiredNotice}</p>
+              </div>
+            </div>
+          )}
 
           {error && (
             <div className="flex items-center space-x-2 rounded-lg bg-rose-50 p-3 text-xs text-rose-700 border border-rose-200">
@@ -137,54 +162,57 @@ export const LoginPage: React.FC = () => {
               disabled={isLoading}
               className="flex w-full items-center justify-center space-x-2 rounded-lg bg-blue-600 py-2.5 text-xs font-semibold text-white shadow-md shadow-blue-600/20 transition-all hover:bg-blue-700 active:scale-[0.99] disabled:opacity-70"
             >
-              <span>{isLoading ? 'Đang xác thực...' : 'Đăng nhập vào hệ thống'}</span>
-              <ArrowRight className="h-4 w-4" />
+              {isLoading && (
+                <svg className="h-3.5 w-3.5 animate-spin text-white" viewBox="0 0 24 24" fill="none">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+                </svg>
+              )}
+              <span>{isLoading ? 'Đang xác thực thông tin...' : 'Đăng nhập vào hệ thống'}</span>
+              {!isLoading && <ArrowRight className="h-3.5 w-3.5" />}
             </button>
           </form>
 
-          {/* Demo Credentials Quick-Fill */}
-          <div className="border-t border-slate-100 pt-5">
-            <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
-              Chọn nhanh tài khoản thử nghiệm (Demo)
+          {/* Never ship demo credentials or shortcuts in built staging/production HTML. */}
+          {(import.meta.env.MODE === 'development' || import.meta.env.MODE === 'test') && <div className="pt-4 border-t border-slate-100">
+            <div className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-2">
+              Tài khoản mẫu theo vai trò (Click để chọn nhanh)
             </div>
-            <div className="mt-3 grid grid-cols-2 gap-2">
+            <div className="grid grid-cols-2 gap-2 text-[11px]">
               <button
                 type="button"
                 onClick={() => fillCredentials('admin@acm.local')}
-                className="rounded-lg border border-slate-200 bg-slate-50/80 px-2.5 py-1.5 text-left text-[11px] font-medium text-slate-700 hover:border-blue-300 hover:bg-blue-50/50"
+                className="rounded border border-slate-200 bg-slate-50 p-2 text-left hover:border-blue-300 hover:bg-blue-50/50 transition-colors"
               >
-                <div className="font-semibold text-purple-700">Admin</div>
-                <div className="truncate text-[10px] text-slate-400">admin@acm.local</div>
+                <div className="font-semibold text-slate-800">Quản trị viên (Admin)</div>
+                <div className="text-slate-500 font-mono text-[10px]">admin@acm.local</div>
               </button>
               <button
                 type="button"
                 onClick={() => fillCredentials('manager@acm.local')}
-                className="rounded-lg border border-slate-200 bg-slate-50/80 px-2.5 py-1.5 text-left text-[11px] font-medium text-slate-700 hover:border-blue-300 hover:bg-blue-50/50"
+                className="rounded border border-slate-200 bg-slate-50 p-2 text-left hover:border-blue-300 hover:bg-blue-50/50 transition-colors"
               >
-                <div className="font-semibold text-blue-700">Lab Manager</div>
-                <div className="truncate text-[10px] text-slate-400">manager@acm.local</div>
+                <div className="font-semibold text-slate-800">Quản lý Lab (Manager)</div>
+                <div className="text-slate-500 font-mono text-[10px]">manager@acm.local</div>
               </button>
               <button
                 type="button"
                 onClick={() => fillCredentials('tech@acm.local')}
-                className="rounded-lg border border-slate-200 bg-slate-50/80 px-2.5 py-1.5 text-left text-[11px] font-medium text-slate-700 hover:border-blue-300 hover:bg-blue-50/50"
+                className="rounded border border-slate-200 bg-slate-50 p-2 text-left hover:border-blue-300 hover:bg-blue-50/50 transition-colors"
               >
-                <div className="font-semibold text-emerald-700">Technician</div>
-                <div className="truncate text-[10px] text-slate-400">tech@acm.local</div>
+                <div className="font-semibold text-slate-800">Kỹ thuật viên (Tech)</div>
+                <div className="text-slate-500 font-mono text-[10px]">tech@acm.local</div>
               </button>
               <button
                 type="button"
                 onClick={() => fillCredentials('student@acm.local')}
-                className="rounded-lg border border-slate-200 bg-slate-50/80 px-2.5 py-1.5 text-left text-[11px] font-medium text-slate-700 hover:border-blue-300 hover:bg-blue-50/50"
+                className="rounded border border-slate-200 bg-slate-50 p-2 text-left hover:border-blue-300 hover:bg-blue-50/50 transition-colors"
               >
-                <div className="font-semibold text-slate-700">Student</div>
-                <div className="truncate text-[10px] text-slate-400">student@acm.local</div>
+                <div className="font-semibold text-slate-800">Sinh viên (Student)</div>
+                <div className="text-slate-500 font-mono text-[10px]">student@acm.local</div>
               </button>
             </div>
-            <p className="mt-2 text-center text-[10px] text-slate-400">
-              Mật khẩu mặc định: <code className="font-mono text-slate-600">ACM@dev2026!</code>
-            </p>
-          </div>
+          </div>}
         </div>
       </div>
     </div>

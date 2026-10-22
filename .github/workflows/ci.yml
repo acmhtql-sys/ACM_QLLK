@@ -1,0 +1,182 @@
+name: ACM CI Pipeline
+
+on:
+  push:
+    branches: [main, master, develop, 'codex/**']
+  pull_request:
+    branches: [main, master, develop]
+
+jobs:
+  ci-pipeline:
+    name: Build, Lint, Typecheck and Test
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: acm_user
+          POSTGRES_PASSWORD: test_password_ci
+          POSTGRES_DB: acm_inventory_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      NODE_ENV: test
+      PORT: 5000
+      API_PREFIX: /api/v1
+      CORS_ORIGIN: http://localhost:5173
+      DATABASE_URL: "postgresql://acm_user:test_password_ci@127.0.0.1:5432/acm_inventory_test?schema=public"
+      SHADOW_DATABASE_URL: "postgresql://acm_user:test_password_ci@127.0.0.1:5432/acm_inventory_shadow?schema=public"
+      JWT_SECRET: ci-pipeline-test-jwt-secret-not-for-production-2026
+      JWT_EXPIRES_IN: 1d
+      BCRYPT_SALT_ROUNDS: 10
+      LOG_LEVEL: debug
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          # jsdom 30 / undici requires Node APIs unavailable in Node 20.
+          node-version: 22
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Validate Prisma Schema
+        run: npm run prisma:validate
+
+      - name: Generate Prisma Client
+        run: npm run prisma:generate
+
+      # Workspace consumers resolve @acm/shared through packages/shared/dist.
+      # Compile it before TypeScript checks the API and Web workspaces.
+      - name: Build Shared Workspace
+        run: npm run build:shared
+
+      - name: Typecheck Monorepo
+        run: npm run typecheck
+
+      - name: Lint Codebase
+        run: npm run lint
+
+      - name: Build All Workspaces
+        run: npm run build
+
+      # env.ts intentionally refuses to run tests without an isolated .env.test.
+      # Create it only inside the ephemeral CI runner, never commit it or reuse cloud credentials.
+      - name: Phase 11 Static Staging Preflight (no cloud access)
+        run: npm run preflight:staging
+
+      - name: Create isolated test environment
+        shell: bash
+        run: |
+          test "$NODE_ENV" = "test"
+          test "$DATABASE_URL" = "postgresql://acm_user:test_password_ci@127.0.0.1:5432/acm_inventory_test?schema=public"
+          (umask 077; cat > apps/api/.env.test <<'EOF'
+          NODE_ENV=test
+          PORT=5000
+          API_PREFIX=/api/v1
+          CORS_ORIGIN=http://localhost:5173
+          DATABASE_URL=postgresql://acm_user:test_password_ci@127.0.0.1:5432/acm_inventory_test?schema=public
+          SHADOW_DATABASE_URL=postgresql://acm_user:test_password_ci@127.0.0.1:5432/acm_inventory_shadow?schema=public
+          JWT_SECRET=ci-pipeline-test-jwt-secret-not-for-production-2026
+          JWT_EXPIRES_IN=1d
+          BCRYPT_SALT_ROUNDS=10
+          LOG_LEVEL=debug
+          ACM_DEPLOYMENT_PROFILE=local_dev
+          STAGING_READ_ONLY=false
+          ALLOW_STAGING_AUTH_LOGIN=false
+          EOF
+          )
+
+      - name: Run Unit Tests
+        run: npm run test:unit
+
+      - name: Apply Migrations to CI Test Database
+        run: npx prisma migrate deploy --schema=apps/api/prisma/schema.prisma
+
+      # Populate only the isolated CI database with fixtures required by E2E tests.
+      # seedTestDb.ts verifies both configured URL and connected database identity.
+      - name: Seed isolated CI Test Database
+        run: npm run prisma:seed:test
+
+      - name: Run Integration & E2E Tests
+        run: npm run test:integration
+
+      - name: Phase 11 Isolated Ledger UAT (PostgreSQL test only)
+        run: npm run test:uat:ledger
+
+      - name: Phase 11B Isolated UAT Gates (PostgreSQL test only)
+        run: npm run test:uat:gates
+
+      - name: Upload Phase 11B UAT Gate Evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase11b-gates-evidence
+          path: apps/api/test-results/phase11b-gates-evidence.json
+          if-no-files-found: warn
+          retention-days: 7
+
+      # Real Chromium renders local Vite preview with fixture-only API responses.
+      - name: Install Chromium for isolated Web UI smoke
+        run: npx playwright install --with-deps chromium
+        working-directory: apps/web
+
+      - name: Phase 11C Browser UI RBAC smoke (mock API)
+        run: npm run test:e2e:mock --workspace=@acm/web
+
+      # Unlike fixture-only UI smoke, these checks use the running real API
+      # backed exclusively by the ephemeral PostgreSQL CI test database.
+      - name: Phase 11C Local Full-Stack Role Login (isolated DB)
+        shell: bash
+        run: |
+          test "$NODE_ENV" = "test"
+          test "$DATABASE_URL" = "postgresql://acm_user:test_password_ci@127.0.0.1:5432/acm_inventory_test?schema=public"
+          sed -i 's|^CORS_ORIGIN=.*|CORS_ORIGIN=http://127.0.0.1:4173|' apps/api/.env.test
+          node apps/api/dist/server.js > /tmp/acm-phase11c-api.log 2>&1 &
+          api_pid=$!
+          trap 'kill "$api_pid" 2>/dev/null || true' EXIT
+          ready=false
+          for i in $(seq 1 45); do
+            if curl -fsS http://127.0.0.1:5000/api/v1/health/readiness >/dev/null 2>&1; then
+              ready=true
+              break
+            fi
+            sleep 1
+          done
+          if [ "$ready" != true ]; then
+            echo "Local API did not become ready on isolated test PostgreSQL"
+            exit 1
+          fi
+          ACM_UI_LIVE=true npm run test:e2e:mock --workspace=@acm/web -- playwright/phase11.fullstack.spec.ts
+
+      - name: Upload Phase 11C Web UI evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase11c-web-ui-evidence
+          path: |
+            apps/web/playwright-report
+            apps/web/test-results
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: Upload Phase 11 UAT Evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase11-ledger-evidence
+          path: apps/api/test-results/phase11-ledger-evidence.json
+          if-no-files-found: warn
+          retention-days: 7

@@ -2,11 +2,12 @@ import React from 'react';
 
 interface StatusBadgeProps {
   status: string;
-  variant?: 'role' | 'borrow' | 'itemType' | 'activeStatus' | 'default';
+  variant?: 'role' | 'borrow' | 'itemType' | 'activeStatus' | 'stockStatus' | 'kitStatus' | 'default';
 }
 
 export const StatusBadge: React.FC<StatusBadgeProps> = ({ status, variant = 'default' }) => {
   let colorClasses = 'bg-slate-100 text-slate-700 border-slate-200';
+  let displayLabel = status;
 
   if (variant === 'role') {
     switch (status) {
@@ -34,6 +35,9 @@ export const StatusBadge: React.FC<StatusBadgeProps> = ({ status, variant = 'def
       case 'HANDED_OVER':
         colorClasses = 'bg-indigo-50 text-indigo-700 border-indigo-200';
         break;
+      case 'PARTIALLY_RETURNED':
+        colorClasses = 'bg-cyan-50 text-cyan-700 border-cyan-200';
+        break;
       case 'RETURNED':
         colorClasses = 'bg-emerald-50 text-emerald-700 border-emerald-200';
         break;
@@ -57,8 +61,44 @@ export const StatusBadge: React.FC<StatusBadgeProps> = ({ status, variant = 'def
   } else if (variant === 'activeStatus') {
     if (status === 'ACTIVE' || status === 'true') {
       colorClasses = 'bg-emerald-50 text-emerald-700 border-emerald-200';
+      displayLabel = 'Hoạt động';
     } else {
       colorClasses = 'bg-slate-100 text-slate-600 border-slate-300';
+      displayLabel = 'Ngưng hoạt động';
+    }
+  } else if (variant === 'stockStatus') {
+    switch (status) {
+      case 'IN_STOCK':
+        colorClasses = 'bg-emerald-50 text-emerald-700 border-emerald-200';
+        displayLabel = 'Sẵn sàng';
+        break;
+      case 'LOW_STOCK':
+        colorClasses = 'bg-amber-50 text-amber-700 border-amber-200';
+        displayLabel = 'Sắp hết';
+        break;
+      case 'OUT_OF_STOCK':
+        colorClasses = 'bg-rose-50 text-rose-700 border-rose-200';
+        displayLabel = 'Đã hết';
+        break;
+    }
+  } else if (variant === 'kitStatus') {
+    switch (status) {
+      case 'AVAILABLE':
+        colorClasses = 'bg-emerald-50 text-emerald-700 border-emerald-200';
+        displayLabel = 'Sẵn sàng';
+        break;
+      case 'ALLOCATED':
+        colorClasses = 'bg-indigo-50 text-indigo-700 border-indigo-200';
+        displayLabel = 'Đã bàn giao / phân bổ';
+        break;
+      case 'MAINTENANCE':
+        colorClasses = 'bg-amber-50 text-amber-700 border-amber-200';
+        displayLabel = 'Đang bảo trì';
+        break;
+      case 'RETIRED':
+        colorClasses = 'bg-slate-100 text-slate-600 border-slate-300';
+        displayLabel = 'Đã thanh lý / rã kit';
+        break;
     }
   }
 
@@ -66,7 +106,7 @@ export const StatusBadge: React.FC<StatusBadgeProps> = ({ status, variant = 'def
     <span
       className={`inline-flex items-center rounded-md border px-2.5 py-0.5 text-xs font-semibold ${colorClasses}`}
     >
-      {status}
+      {displayLabel}
     </span>
   );
 };

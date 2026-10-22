@@ -14,6 +14,8 @@ import {
   SortOrder,
   calculateAvailableStock,
   isLowStock,
+  getItemStockStatus,
+  StockStatus,
 } from '@acm/shared';
 
 export interface FormattedItemWithCompat extends ItemResponse {
@@ -40,6 +42,7 @@ export function formatItemResponse(item: any): FormattedItemWithCompat {
   });
 
   const lowStock = isLowStock(available, item.minStockAlert);
+  const stockStatus = getItemStockStatus(available, item.minStockAlert);
 
   const formattedBalances = stockBalances.map((b: any) => ({
     id: b.id,
@@ -81,6 +84,7 @@ export function formatItemResponse(item: any): FormattedItemWithCompat {
     totalBorrowed,
     available,
     isLowStock: lowStock,
+    stockStatus,
     stockBalances: formattedBalances,
     createdAt: item.createdAt,
     updatedAt: item.updatedAt,
@@ -106,8 +110,30 @@ export class ItemsService {
         query.search
           ? {
               OR: [
-                { name: { contains: query.search, mode: 'insensitive' } },
-                { code: { contains: query.search, mode: 'insensitive' } },
+                { name: { contains: query.search.trim(), mode: 'insensitive' } },
+                { code: { contains: query.search.trim(), mode: 'insensitive' } },
+                { description: { contains: query.search.trim(), mode: 'insensitive' } },
+                {
+                  assets: {
+                    some: {
+                      barcode: { contains: query.search.trim(), mode: 'insensitive' },
+                    },
+                  },
+                },
+              ],
+            }
+          : {},
+        query.barcode
+          ? {
+              OR: [
+                { code: { equals: query.barcode.trim(), mode: 'insensitive' } },
+                {
+                  assets: {
+                    some: {
+                      barcode: { equals: query.barcode.trim(), mode: 'insensitive' },
+                    },
+                  },
+                },
               ],
             }
           : {},
@@ -137,8 +163,8 @@ export class ItemsService {
     const page = Math.max(1, query.page || 1);
     const limit = Math.min(100, Math.max(1, query.limit || 20));
 
-    // When filtering by computed low stock, fetch all matching criteria and filter in memory
-    if (query.isLowStock !== undefined) {
+    // When filtering by computed low stock or stock status, fetch all matching criteria and filter in memory
+    if (query.isLowStock !== undefined || query.stockStatus !== undefined) {
       const allMatching = await prisma.item.findMany({
         where,
         orderBy,
@@ -152,11 +178,16 @@ export class ItemsService {
         },
       });
 
-      const formatted = allMatching.map(formatItemResponse);
-      const filtered = formatted.filter((item) => item.isLowStock === query.isLowStock);
-      const totalItems = filtered.length;
+      let formatted = allMatching.map(formatItemResponse);
+      if (query.isLowStock !== undefined) {
+        formatted = formatted.filter((item) => item.isLowStock === query.isLowStock);
+      }
+      if (query.stockStatus !== undefined) {
+        formatted = formatted.filter((item) => item.stockStatus === query.stockStatus);
+      }
+      const totalItems = formatted.length;
       const totalPages = Math.ceil(totalItems / limit) || 1;
-      const paginatedItems = filtered.slice((page - 1) * limit, page * limit);
+      const paginatedItems = formatted.slice((page - 1) * limit, page * limit);
 
       return {
         items: paginatedItems,
@@ -235,6 +266,65 @@ export class ItemsService {
   }
 
   /**
+   * Retrieves single item by barcode (checking tracked assets and item code)
+   */
+  async getItemByBarcode(barcode: string, user?: AuthenticatedUser): Promise<FormattedItemWithCompat> {
+    const trimmed = barcode.trim();
+    if (!trimmed) {
+      throw new AppError('Mã barcode không hợp lệ', 400);
+    }
+
+    // 1. Try matching Asset barcode
+    const asset = await prisma.asset.findFirst({
+      where: { barcode: trimmed },
+      include: {
+        item: {
+          include: {
+            category: { select: { id: true, code: true, name: true } },
+            stockBalances: {
+              include: {
+                location: { select: { code: true, name: true } },
+              },
+            },
+          },
+        },
+      },
+    });
+
+    if (asset && asset.item) {
+      if (!asset.item.isActive && (user?.role === UserRole.STUDENT || !user)) {
+        throw new AppError('Bạn không có quyền truy cập linh kiện đã ngưng hoạt động', 403);
+      }
+      return formatItemResponse(asset.item);
+    }
+
+    // 2. Try matching Item code
+    const item = await prisma.item.findFirst({
+      where: {
+        code: { equals: trimmed, mode: 'insensitive' },
+      },
+      include: {
+        category: { select: { id: true, code: true, name: true } },
+        stockBalances: {
+          include: {
+            location: { select: { code: true, name: true } },
+          },
+        },
+      },
+    });
+
+    if (!item) {
+      throw new AppError(`Không tìm thấy linh kiện nào với mã barcode/SKU '${trimmed}'`, 404);
+    }
+
+    if (!item.isActive && (user?.role === UserRole.STUDENT || !user)) {
+      throw new AppError('Bạn không có quyền truy cập linh kiện đã ngưng hoạt động', 403);
+    }
+
+    return formatItemResponse(item);
+  }
+
+  /**
    * Creates new item and writes audit log in transaction
    */
   async createItem(
@@ -243,13 +333,15 @@ export class ItemsService {
     ipAddress?: string,
     userAgent?: string
   ): Promise<FormattedItemWithCompat> {
-    // Check duplicate SKU
-    const existing = await prisma.item.findUnique({
-      where: { code: data.code },
+    const normalizedCode = data.code.trim().toUpperCase();
+
+    // Check duplicate SKU case-insensitively
+    const existing = await prisma.item.findFirst({
+      where: { code: { equals: normalizedCode, mode: 'insensitive' } },
     });
     if (existing) {
       throw new AppError(
-        `Mã linh kiện/thiết bị '${data.code}' đã tồn tại trong hệ thống`,
+        `Mã linh kiện/thiết bị '${normalizedCode}' đã tồn tại trong hệ thống`,
         409
       );
     }
@@ -265,14 +357,14 @@ export class ItemsService {
     return await prisma.$transaction(async (tx) => {
       const created = await tx.item.create({
         data: {
-          code: data.code,
-          name: data.name,
-          description: data.description || null,
-          unit: data.unit,
+          code: normalizedCode,
+          name: data.name.trim(),
+          description: data.description ? data.description.trim() : null,
+          unit: data.unit.trim(),
           type: data.type,
           categoryId: data.categoryId,
           minStockAlert: data.minStockAlert,
-          imageUrl: data.imageUrl || null,
+          imageUrl: data.imageUrl ? data.imageUrl.trim() : null,
         },
         include: {
           category: { select: { id: true, code: true, name: true } },
@@ -326,16 +418,22 @@ export class ItemsService {
       throw new AppError('Không tìm thấy linh kiện cần cập nhật', 404);
     }
 
-    // Check SKU conflict if updating code
-    if (data.code && data.code !== existing.code) {
-      const codeConflict = await prisma.item.findFirst({
-        where: { code: data.code, NOT: { id } },
-      });
-      if (codeConflict) {
-        throw new AppError(
-          `Mã linh kiện/thiết bị '${data.code}' đã tồn tại trong hệ thống`,
-          409
-        );
+    let normalizedCode: string | undefined = undefined;
+    if (data.code) {
+      normalizedCode = data.code.trim().toUpperCase();
+      if (normalizedCode !== existing.code.toUpperCase()) {
+        const codeConflict = await prisma.item.findFirst({
+          where: {
+            code: { equals: normalizedCode, mode: 'insensitive' },
+            NOT: { id },
+          },
+        });
+        if (codeConflict) {
+          throw new AppError(
+            `Mã linh kiện/thiết bị '${normalizedCode}' đã tồn tại trong hệ thống`,
+            409
+          );
+        }
       }
     }
 
@@ -353,14 +451,14 @@ export class ItemsService {
       const updated = await tx.item.update({
         where: { id },
         data: {
-          code: data.code,
-          name: data.name,
-          description: data.description !== undefined ? data.description : undefined,
-          unit: data.unit,
+          code: normalizedCode,
+          name: data.name !== undefined ? data.name.trim() : undefined,
+          description: data.description !== undefined ? (data.description ? data.description.trim() : null) : undefined,
+          unit: data.unit !== undefined ? data.unit.trim() : undefined,
           type: data.type,
           categoryId: data.categoryId,
           minStockAlert: data.minStockAlert,
-          imageUrl: data.imageUrl !== undefined ? data.imageUrl : undefined,
+          imageUrl: data.imageUrl !== undefined ? (data.imageUrl ? data.imageUrl.trim() : null) : undefined,
         },
         include: {
           category: { select: { id: true, code: true, name: true } },
@@ -454,6 +552,101 @@ export class ItemsService {
       });
 
       return formatItemResponse(updated);
+    });
+  }
+
+  /**
+   * Safe item deletion with referential integrity and audit logging.
+   * If item has active stock (>0) or historical ledger movements / borrows / kits, deletion is rejected.
+   */
+  async deleteItem(
+    id: string,
+    userId: string,
+    ipAddress?: string,
+    userAgent?: string
+  ): Promise<{ id: string; code: string; name: string }> {
+    const item = await prisma.item.findUnique({
+      where: { id },
+      include: {
+        stockBalances: true,
+        stockMovements: { select: { id: true }, take: 1 },
+        stockTransactionDetails: { select: { id: true }, take: 1 },
+        borrowDetails: { select: { id: true }, take: 1 },
+        kitItems: { select: { id: true }, take: 1 },
+        assets: { select: { id: true }, take: 1 },
+      },
+    });
+
+    if (!item) {
+      throw new AppError('Không tìm thấy linh kiện cần xóa', 404);
+    }
+
+    // 1. Check if item has any non-zero physical stock balances
+    const totalOnHand = item.stockBalances.reduce((sum, b) => sum + (b.onHand || 0), 0);
+    const totalReserved = item.stockBalances.reduce((sum, b) => sum + (b.reserved || 0), 0);
+    const totalQuarantined = item.stockBalances.reduce((sum, b) => sum + (b.quarantined || 0), 0);
+    const totalKitAllocated = item.stockBalances.reduce((sum, b) => sum + (b.kitAllocated || 0), 0);
+    const totalBorrowed = item.stockBalances.reduce((sum, b) => sum + (b.borrowed || 0), 0);
+
+    if (totalOnHand > 0 || totalReserved > 0 || totalQuarantined > 0 || totalKitAllocated > 0 || totalBorrowed > 0) {
+      throw new AppError(
+        `Không thể xóa linh kiện '${item.code}' vì đang còn số dư tồn kho (Tồn vật lý: ${totalOnHand}, Đang mượn: ${totalBorrowed}). Vui lòng điều chỉnh/xuất kho về 0 hoặc chuyển trạng thái sang ngưng hoạt động.`,
+        400
+      );
+    }
+
+    // 2. Check if item is tied to historical transactions, borrow requests, kits or assets
+    const hasHistory =
+      item.stockMovements.length > 0 ||
+      item.stockTransactionDetails.length > 0 ||
+      item.borrowDetails.length > 0 ||
+      item.kitItems.length > 0 ||
+      item.assets.length > 0;
+
+    if (hasHistory) {
+      throw new AppError(
+        `Không thể xóa vật lý linh kiện '${item.code}' do đã phát sinh lịch sử giao dịch kho, phiếu mượn hoặc cấu hình bộ kit. Vui lòng sử dụng tính năng vô hiệu hóa (deactivate) để bảo toàn lịch sử dữ liệu.`,
+        409
+      );
+    }
+
+    // 3. Safe to physically delete
+    return await prisma.$transaction(async (tx) => {
+      // Delete zero-balance stock balance records first to satisfy FK
+      await tx.stockBalance.deleteMany({
+        where: { itemId: id },
+      });
+
+      const deleted = await tx.item.delete({
+        where: { id },
+      });
+
+      // Write audit log
+      await tx.auditLog.create({
+        data: {
+          userId,
+          action: 'DELETE_ITEM',
+          entity: 'Item',
+          entityId: id,
+          oldValue: {
+            code: item.code,
+            name: item.name,
+            unit: item.unit,
+            type: item.type,
+            categoryId: item.categoryId,
+            minStockAlert: item.minStockAlert,
+          },
+          newValue: Prisma.DbNull,
+          ipAddress: ipAddress || null,
+          userAgent: userAgent || null,
+        },
+      });
+
+      return {
+        id: deleted.id,
+        code: deleted.code,
+        name: deleted.name,
+      };
     });
   }
 }

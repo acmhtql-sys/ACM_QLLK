@@ -1,4 +1,7 @@
 # ACM – CLOUD STAGING DEPLOYMENT CHECKLIST
+
+> **Phase 11 overlay (17/10/2026):** Nội dung bên dưới là kế hoạch cũ, không phải bằng chứng Cloud đã triển khai. Xem [docs/phase11/STAGING_READINESS.md](./docs/phase11/STAGING_READINESS.md). Đặc biệt, đăng nhập **không chỉ đọc** (có cập nhật số lần nhập sai và reset bộ đếm). Giữ `ALLOW_STAGING_AUTH_LOGIN=false`; không thử write UAT trên Cloud chỉ đọc. Các bước sync repo ban đầu đã lỗi thời. 
+
 ## Execution Guide for Phased Multi-Platform Staging Launch
 
 **Document ID:** `ACM-DEPLOY-CHECKLIST-C1A`  

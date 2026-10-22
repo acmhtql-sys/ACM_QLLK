@@ -40,6 +40,20 @@ itemsRouter.get('/', authenticateOptional, async (req: Request, res: Response, n
 });
 
 /**
+ * GET /api/v1/items/barcode/:barcode
+ * Reads item by asset barcode or item SKU code.
+ * RBAC: Students cannot view inactive items.
+ */
+itemsRouter.get('/barcode/:barcode', authenticateOptional, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const item = await itemsService.getItemByBarcode(req.params.barcode, req.user);
+    return sendSuccess(res, item, 'Thông tin linh kiện theo barcode');
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
  * GET /api/v1/items/:id
  * Reads item detail and location stock balances.
  * RBAC: Students cannot view inactive items.
@@ -148,13 +162,25 @@ itemsRouter.patch(
 
 /**
  * DELETE /api/v1/items/:id
- * Physical deletion is explicitly forbidden in Phase 2.1 to preserve data integrity.
+ * Safe deletion: allows deleting items with zero stock balances and no historical transactions.
+ * Prevents data loss / ledger corruption if stock or history exists (recommends deactivation).
+ * RBAC: ADMIN, LAB_MANAGER only.
  */
-itemsRouter.delete('/:id', (_req: Request, _res: Response, next: NextFunction) => {
-  next(
-    new AppError(
-      'Hệ thống không hỗ trợ xóa vật lý linh kiện. Vui lòng sử dụng cập nhật trạng thái PATCH /api/v1/items/:id/status để vô hiệu hóa.',
-      405
-    )
-  );
-});
+itemsRouter.delete(
+  '/:id',
+  authenticate,
+  authorizeRoles(UserRole.ADMIN, UserRole.LAB_MANAGER),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const deleted = await itemsService.deleteItem(
+        req.params.id,
+        req.user!.id,
+        req.ip,
+        req.headers['user-agent']
+      );
+      return sendSuccess(res, deleted, 'Xóa linh kiện thành công', 200);
+    } catch (err) {
+      next(err);
+    }
+  }
+);

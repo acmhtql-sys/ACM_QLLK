@@ -1,14 +1,18 @@
 import React from 'react';
+import { useAuth } from '../hooks/useAuth';
+import { canAccessPage } from '../config/access';
 import { NavLink } from 'react-router-dom';
 import {
   LayoutDashboard,
   Cpu,
   Layers,
+  Boxes,
   Warehouse,
   ArrowLeftRight,
   ClipboardList,
   Users,
   BarChart3,
+  History,
   Settings,
   ShieldCheck,
   X,
@@ -23,15 +27,19 @@ const navItems = [
   { name: 'Dashboard', path: '/dashboard', icon: LayoutDashboard },
   { name: 'Linh kiện & Thiết bị', path: '/items', icon: Cpu },
   { name: 'Danh mục (Categories)', path: '/categories', icon: Layers },
+  { name: 'Hộp Kit thực hành (Kits)', path: '/kits', icon: Boxes },
   { name: 'Kho & Tồn kho (Inventory)', path: '/inventory', icon: Warehouse },
   { name: 'Giao dịch kho (Stock Tx)', path: '/transactions', icon: ArrowLeftRight },
   { name: 'Mượn & Trả (Borrow & Return)', path: '/borrow-return', icon: ClipboardList },
   { name: 'Người dùng (Users)', path: '/users', icon: Users },
   { name: 'Báo cáo & Thống kê', path: '/reports', icon: BarChart3 },
+  { name: 'Nhật ký kiểm toán (Audit)', path: '/audit-logs', icon: History },
   { name: 'Cài đặt hệ thống', path: '/settings', icon: Settings },
 ];
 
 export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
+  const { user } = useAuth();
+  const visibleNavItems = navItems.filter(item => canAccessPage(user?.role, item.path));
   return (
     <>
       {/* Mobile Backdrop */}
@@ -72,7 +80,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
           <div className="px-3 pb-2 text-[10px] font-bold uppercase tracking-wider text-slate-400">
             Main Navigation
           </div>
-          {navItems.map((item) => {
+          {visibleNavItems.map((item) => {
             const Icon = item.icon;
             return (
               <NavLink

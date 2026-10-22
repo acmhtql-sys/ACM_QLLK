@@ -20,6 +20,24 @@ import {
   queryStockMovementsSchema,
   queryIdempotencyParamsSchema,
   idempotencyQueryResponseSchema,
+  createBorrowRequestSchema,
+  approveBorrowRequestSchema,
+  rejectBorrowRequestSchema,
+  cancelBorrowRequestSchema,
+  handoverBorrowRequestSchema,
+  returnBorrowRequestSchema,
+  queryBorrowRequestsSchema,
+  updateUserSchema,
+  updateUserStatusSchema,
+  resetUserPasswordSchema,
+  queryUsersSchema,
+  kitItemInputSchema,
+  createKitSchema,
+  updateKitSchema,
+  updateKitStatusSchema,
+  queryKitsSchema,
+  queryAuditLogsSchema,
+  queryReportsSchema,
 } from './validators';
 import {
   ItemType,
@@ -32,6 +50,15 @@ import {
   StockTransactionSortField,
   StockMovementSortField,
   StockBalanceSortField,
+  StockStatus,
+  BorrowStatus,
+  AssetCondition,
+  BorrowSortField,
+  UserRole,
+  UserSortField,
+  KitStatus,
+  KitSortField,
+  AuditLogSortField,
 } from './types';
 
 describe('Shared Validators Tests', () => {
@@ -97,6 +124,36 @@ describe('Shared Validators Tests', () => {
           categoryId: validUUID,
         })
       ).toThrow();
+    });
+
+    it('validates SKU format: allows alphanumeric, hyphen, underscore, dot; rejects invalid symbols and >50 chars', () => {
+      const validSKU = createItemSchema.parse({
+        code: 'ESP32_WROOM-32.V1',
+        name: 'ESP32 Module',
+        unit: 'cái',
+        categoryId: validUUID,
+      });
+      expect(validSKU.code).toBe('ESP32_WROOM-32.V1');
+
+      // Reject special symbols
+      expect(() =>
+        createItemSchema.parse({
+          code: 'INVALID/SKU@123',
+          name: 'ESP32 Module',
+          unit: 'cái',
+          categoryId: validUUID,
+        })
+      ).toThrow(/chữ cái, số, dấu gạch ngang/);
+
+      // Reject > 50 chars
+      expect(() =>
+        createItemSchema.parse({
+          code: 'A'.repeat(51),
+          name: 'ESP32 Module',
+          unit: 'cái',
+          categoryId: validUUID,
+        })
+      ).toThrow(/tối đa 50 ký tự/);
     });
 
     it('rejects unexpected / disallowed keys including stock quantities (strict)', () => {
@@ -274,6 +331,20 @@ describe('Shared Validators Tests', () => {
     it('enforces limit constraints between 1 and 100', () => {
       expect(() => queryItemsSchema.parse({ limit: '0' })).toThrow();
       expect(() => queryItemsSchema.parse({ limit: '101' })).toThrow();
+    });
+
+    it('parses stockStatus and barcode filters correctly', () => {
+      const inStock = queryItemsSchema.parse({ stockStatus: StockStatus.IN_STOCK, barcode: 'BC-999' });
+      expect(inStock.stockStatus).toBe(StockStatus.IN_STOCK);
+      expect(inStock.barcode).toBe('BC-999');
+
+      const lowStock = queryItemsSchema.parse({ stockStatus: 'LOW_STOCK' });
+      expect(lowStock.stockStatus).toBe(StockStatus.LOW_STOCK);
+
+      const outOfStock = queryItemsSchema.parse({ stockStatus: 'OUT_OF_STOCK' });
+      expect(outOfStock.stockStatus).toBe(StockStatus.OUT_OF_STOCK);
+
+      expect(() => queryItemsSchema.parse({ stockStatus: 'INVALID_STATUS' })).toThrow();
     });
   });
 
@@ -1109,4 +1180,417 @@ describe('Shared Validators Tests', () => {
       }
     });
   });
+
+  describe('Borrow & Return Schemas', () => {
+    describe('createBorrowRequestSchema', () => {
+      it('validates a valid borrow request', () => {
+        const payload = {
+          expectedBorrowDate: '2026-10-20',
+          expectedReturnDate: '2026-10-25',
+          purpose: 'Phục vụ đề tài nghiên cứu robot AGV',
+          notes: 'Mượn thêm cáp kết nối',
+          items: [{ itemId: validUUID, quantity: 2 }],
+        };
+        const parsed = createBorrowRequestSchema.parse(payload);
+        expect(parsed.purpose).toBe('Phục vụ đề tài nghiên cứu robot AGV');
+        expect(parsed.items).toHaveLength(1);
+        expect(parsed.items[0].quantity).toBe(2);
+      });
+
+      it('rejects when expectedReturnDate is before expectedBorrowDate', () => {
+        const payload = {
+          expectedBorrowDate: '2026-10-25',
+          expectedReturnDate: '2026-10-20',
+          purpose: 'Mượn thiết bị kiểm thử',
+          items: [{ itemId: validUUID, quantity: 1 }],
+        };
+        const result = createBorrowRequestSchema.safeParse(payload);
+        expect(result.success).toBe(false);
+        if (!result.success) {
+          expect(result.error.errors.some((e) => e.path.includes('expectedReturnDate'))).toBe(true);
+        }
+      });
+
+      it('rejects when items array is empty', () => {
+        const payload = {
+          expectedBorrowDate: '2026-10-20',
+          expectedReturnDate: '2026-10-25',
+          purpose: 'Mượn thiết bị kiểm thử',
+          items: [],
+        };
+        const result = createBorrowRequestSchema.safeParse(payload);
+        expect(result.success).toBe(false);
+      });
+
+      it('rejects when quantity is zero or negative', () => {
+        const payload = {
+          expectedBorrowDate: '2026-10-20',
+          expectedReturnDate: '2026-10-25',
+          purpose: 'Mượn linh kiện thí nghiệm',
+          items: [{ itemId: validUUID, quantity: 0 }],
+        };
+        expect(createBorrowRequestSchema.safeParse(payload).success).toBe(false);
+      });
+
+      it('rejects short purpose (< 3 characters)', () => {
+        const payload = {
+          expectedBorrowDate: '2026-10-20',
+          expectedReturnDate: '2026-10-25',
+          purpose: 'OK',
+          items: [{ itemId: validUUID, quantity: 1 }],
+        };
+        expect(createBorrowRequestSchema.safeParse(payload).success).toBe(false);
+      });
+    });
+
+    describe('rejectBorrowRequestSchema', () => {
+      it('validates rejection reason with >= 3 characters', () => {
+        const payload = { rejectionReason: 'Kho đã hết số lượng khả dụng' };
+        expect(rejectBorrowRequestSchema.parse(payload).rejectionReason).toBe('Kho đã hết số lượng khả dụng');
+      });
+
+      it('rejects empty or too short rejectionReason', () => {
+        expect(rejectBorrowRequestSchema.safeParse({ rejectionReason: 'No' }).success).toBe(false);
+        expect(rejectBorrowRequestSchema.safeParse({ rejectionReason: '' }).success).toBe(false);
+      });
+    });
+
+    describe('returnBorrowRequestSchema', () => {
+      it('validates valid return items with condition', () => {
+        const payload = {
+          items: [
+            {
+              borrowDetailId: validUUID,
+              returnedQuantity: 2,
+              condition: AssetCondition.GOOD,
+            },
+            {
+              borrowDetailId: validUUID2,
+              returnedQuantity: 1,
+              condition: AssetCondition.DAMAGED,
+              notes: 'Gãy chân cắm',
+            },
+          ],
+          notes: 'Đã kiểm tra linh kiện khi trả',
+        };
+        const parsed = returnBorrowRequestSchema.parse(payload);
+        expect(parsed.items).toHaveLength(2);
+        expect(parsed.items[1].condition).toBe(AssetCondition.DAMAGED);
+      });
+
+      it('rejects duplicate borrowDetailId rows in a single return payload', () => {
+        const payload = {
+          items: [
+            { borrowDetailId: validUUID, returnedQuantity: 2, condition: AssetCondition.GOOD },
+            { borrowDetailId: validUUID, returnedQuantity: 2, condition: AssetCondition.DAMAGED },
+          ],
+        };
+        const result = returnBorrowRequestSchema.safeParse(payload);
+        expect(result.success).toBe(false);
+        if (!result.success) {
+          expect(result.error.issues.some((issue) => issue.path.join('.') === 'items.1.borrowDetailId')).toBe(true);
+        }
+      });
+
+      it('rejects when return items array is empty', () => {
+        expect(returnBorrowRequestSchema.safeParse({ items: [] }).success).toBe(false);
+      });
+
+      it('rejects when returnedQuantity is <= 0', () => {
+        const payload = {
+          items: [{ borrowDetailId: validUUID, returnedQuantity: 0 }],
+        };
+        expect(returnBorrowRequestSchema.safeParse(payload).success).toBe(false);
+      });
+    });
+
+    describe('queryBorrowRequestsSchema', () => {
+      it('applies defaults for page, limit, sortBy, sortOrder', () => {
+        const parsed = queryBorrowRequestsSchema.parse({});
+        expect(parsed.page).toBe(1);
+        expect(parsed.limit).toBe(20);
+        expect(parsed.sortBy).toBe(BorrowSortField.CREATED_AT);
+        expect(parsed.sortOrder).toBe(SortOrder.DESC);
+      });
+
+      it('parses isOverdue boolean query param', () => {
+        const parsedTrue = queryBorrowRequestsSchema.parse({ isOverdue: 'true' });
+        expect(parsedTrue.isOverdue).toBe(true);
+
+        const parsedFalse = queryBorrowRequestsSchema.parse({ isOverdue: 'false' });
+        expect(parsedFalse.isOverdue).toBe(false);
+      });
+
+      it('rejects invalid isOverdue value', () => {
+        expect(queryBorrowRequestsSchema.safeParse({ isOverdue: 'invalid_val' }).success).toBe(false);
+      });
+
+      it('validates status filter', () => {
+        const parsed = queryBorrowRequestsSchema.parse({ status: BorrowStatus.APPROVED });
+        expect(parsed.status).toBe(BorrowStatus.APPROVED);
+      });
+    });
+  });
+
+  // ==========================================
+  // USER MANAGEMENT VALIDATION SUITES
+  // ==========================================
+
+  describe('User Management Validation Suites', () => {
+    describe('updateUserSchema', () => {
+      it('validates valid user update with partial fields', () => {
+        const parsed = updateUserSchema.parse({
+          fullName: 'Nguyễn Văn B',
+          department: 'Điện tử - Viễn thông',
+        });
+        expect(parsed.fullName).toBe('Nguyễn Văn B');
+        expect(parsed.department).toBe('Điện tử - Viễn thông');
+        expect(parsed.role).toBeUndefined();
+      });
+
+      it('allows updating role to a valid UserRole', () => {
+        const parsed = updateUserSchema.parse({ role: UserRole.LAB_MANAGER });
+        expect(parsed.role).toBe(UserRole.LAB_MANAGER);
+      });
+
+      it('rejects empty update object', () => {
+        expect(updateUserSchema.safeParse({}).success).toBe(false);
+      });
+
+      it('rejects unrecognized extra fields in strict mode', () => {
+        expect(updateUserSchema.safeParse({ fullName: 'Nguyễn Văn C', extraField: 123 }).success).toBe(false);
+      });
+    });
+
+    describe('updateUserStatusSchema', () => {
+      it('accepts setting isActive', () => {
+        const parsed = updateUserStatusSchema.parse({ isActive: false, reason: 'Nghỉ việc' });
+        expect(parsed.isActive).toBe(false);
+        expect(parsed.reason).toBe('Nghỉ việc');
+      });
+
+      it('accepts setting isLocked', () => {
+        const parsed = updateUserStatusSchema.parse({ isLocked: true });
+        expect(parsed.isLocked).toBe(true);
+      });
+
+      it('rejects empty object without isActive or isLocked', () => {
+        expect(updateUserStatusSchema.safeParse({ reason: 'Không có trạng thái' }).success).toBe(false);
+      });
+    });
+
+    describe('resetUserPasswordSchema', () => {
+      it('accepts password with at least 6 characters', () => {
+        const parsed = resetUserPasswordSchema.parse({ newPassword: 'NewSecurePass@123' });
+        expect(parsed.newPassword).toBe('NewSecurePass@123');
+      });
+
+      it('rejects password shorter than 6 characters', () => {
+        expect(resetUserPasswordSchema.safeParse({ newPassword: '123' }).success).toBe(false);
+      });
+    });
+
+    describe('queryUsersSchema', () => {
+      it('applies defaults for page, limit, sortBy, sortOrder', () => {
+        const parsed = queryUsersSchema.parse({});
+        expect(parsed.page).toBe(1);
+        expect(parsed.limit).toBe(20);
+        expect(parsed.sortBy).toBe(UserSortField.CREATED_AT);
+        expect(parsed.sortOrder).toBe(SortOrder.DESC);
+      });
+
+      it('parses role and boolean filters', () => {
+        const parsed = queryUsersSchema.parse({
+          role: UserRole.TECHNICIAN,
+          isActive: 'true',
+          isLocked: 'false',
+        });
+        expect(parsed.role).toBe(UserRole.TECHNICIAN);
+        expect(parsed.isActive).toBe(true);
+        expect(parsed.isLocked).toBe(false);
+      });
+    });
+  });
+
+  // ==========================================
+  // KIT MANAGEMENT VALIDATION SUITES
+  // ==========================================
+
+  describe('Kit Management Validation Suites', () => {
+    describe('kitItemInputSchema', () => {
+      it('validates a valid kit item', () => {
+        const parsed = kitItemInputSchema.parse({
+          itemId: validUUID,
+          quantity: 2,
+          notes: 'Module chính',
+        });
+        expect(parsed.itemId).toBe(validUUID);
+        expect(parsed.quantity).toBe(2);
+      });
+
+      it('rejects quantity <= 0', () => {
+        expect(kitItemInputSchema.safeParse({ itemId: validUUID, quantity: 0 }).success).toBe(false);
+        expect(kitItemInputSchema.safeParse({ itemId: validUUID, quantity: -1 }).success).toBe(false);
+      });
+
+      it('rejects non-uuid itemId', () => {
+        expect(kitItemInputSchema.safeParse({ itemId: 'not-a-uuid', quantity: 1 }).success).toBe(false);
+      });
+    });
+
+    describe('createKitSchema', () => {
+      it('validates a correct kit creation payload', () => {
+        const parsed = createKitSchema.parse({
+          code: 'KIT-IOT-001',
+          name: 'Bộ thực hành IoT ESP32 Cơ bản',
+          description: 'Bao gồm kit ESP32 và cảm biến DHT22',
+          locationId: validUUID,
+          items: [
+            { itemId: validUUID, quantity: 1, notes: 'ESP32 board' },
+            { itemId: validUUID2, quantity: 2, notes: 'DHT22 sensors' },
+          ],
+        });
+        expect(parsed.code).toBe('KIT-IOT-001');
+        expect(parsed.items).toHaveLength(2);
+      });
+
+      it('rejects duplicate itemIds in kit items', () => {
+        const res = createKitSchema.safeParse({
+          code: 'KIT-DUP-01',
+          name: 'Kit Trùng Linh Kiện',
+          items: [
+            { itemId: validUUID, quantity: 1 },
+            { itemId: validUUID, quantity: 2 },
+          ],
+        });
+        expect(res.success).toBe(false);
+      });
+
+      it('rejects empty items array', () => {
+        const res = createKitSchema.safeParse({
+          code: 'KIT-EMPTY',
+          name: 'Kit Rỗng',
+          items: [],
+        });
+        expect(res.success).toBe(false);
+      });
+
+      it('rejects invalid kit code format', () => {
+        const res = createKitSchema.safeParse({
+          code: 'KIT IOT $#@',
+          name: 'Kit Tên Sai',
+          items: [{ itemId: validUUID, quantity: 1 }],
+        });
+        expect(res.success).toBe(false);
+      });
+    });
+
+    describe('updateKitSchema', () => {
+      it('validates partial update of name and description', () => {
+        const parsed = updateKitSchema.parse({
+          name: 'Tên Kit Mới',
+          description: 'Mô tả mới',
+        });
+        expect(parsed.name).toBe('Tên Kit Mới');
+      });
+
+      it('rejects empty update object', () => {
+        expect(updateKitSchema.safeParse({}).success).toBe(false);
+      });
+
+      it('rejects update with duplicate items', () => {
+        const res = updateKitSchema.safeParse({
+          items: [
+            { itemId: validUUID, quantity: 1 },
+            { itemId: validUUID, quantity: 3 },
+          ],
+        });
+        expect(res.success).toBe(false);
+      });
+    });
+
+    describe('updateKitStatusSchema', () => {
+      it('validates valid status transition payload', () => {
+        const parsed = updateKitStatusSchema.parse({
+          status: KitStatus.MAINTENANCE,
+          notes: 'Đang kiểm tra bảo trì linh kiện hỏng',
+        });
+        expect(parsed.status).toBe(KitStatus.MAINTENANCE);
+      });
+
+      it('rejects invalid status', () => {
+        expect(updateKitStatusSchema.safeParse({ status: 'BROKEN' }).success).toBe(false);
+      });
+    });
+
+    describe('queryKitsSchema', () => {
+      it('applies defaults for page, limit, sortBy, sortOrder', () => {
+        const parsed = queryKitsSchema.parse({});
+        expect(parsed.page).toBe(1);
+        expect(parsed.limit).toBe(20);
+        expect(parsed.sortBy).toBe(KitSortField.CREATED_AT);
+        expect(parsed.sortOrder).toBe(SortOrder.DESC);
+      });
+
+      it('validates status and locationId filters', () => {
+        const parsed = queryKitsSchema.parse({
+          status: KitStatus.AVAILABLE,
+          locationId: validUUID,
+        });
+        expect(parsed.status).toBe(KitStatus.AVAILABLE);
+        expect(parsed.locationId).toBe(validUUID);
+      });
+    });
+  });
+
+  // ==========================================
+  // AUDIT LOG & REPORT VALIDATION SUITES
+  // ==========================================
+
+  describe('Audit Log & Report Validation Suites', () => {
+    describe('queryAuditLogsSchema', () => {
+      it('applies defaults for page, limit, sortBy, sortOrder', () => {
+        const parsed = queryAuditLogsSchema.parse({});
+        expect(parsed.page).toBe(1);
+        expect(parsed.limit).toBe(20);
+        expect(parsed.sortBy).toBe(AuditLogSortField.CREATED_AT);
+        expect(parsed.sortOrder).toBe(SortOrder.DESC);
+      });
+
+      it('parses action, entity, userId, search filters', () => {
+        const parsed = queryAuditLogsSchema.parse({
+          action: 'CREATE_ITEM',
+          entity: 'Item',
+          userId: validUUID,
+          search: 'ESP32',
+          sortBy: AuditLogSortField.ACTION,
+          sortOrder: SortOrder.ASC,
+        });
+        expect(parsed.action).toBe('CREATE_ITEM');
+        expect(parsed.entity).toBe('Item');
+        expect(parsed.userId).toBe(validUUID);
+        expect(parsed.search).toBe('ESP32');
+        expect(parsed.sortBy).toBe(AuditLogSortField.ACTION);
+        expect(parsed.sortOrder).toBe(SortOrder.ASC);
+      });
+
+      it('rejects invalid userId format', () => {
+        expect(queryAuditLogsSchema.safeParse({ userId: 'not-a-valid-uuid' }).success).toBe(false);
+      });
+    });
+
+    describe('queryReportsSchema', () => {
+      it('validates optional report query parameters', () => {
+        const parsed = queryReportsSchema.parse({
+          categoryId: validUUID,
+          type: ItemType.TRACKED_ASSET,
+        });
+        expect(parsed.categoryId).toBe(validUUID);
+        expect(parsed.type).toBe(ItemType.TRACKED_ASSET);
+      });
+    });
+  });
 });
+
+
+
