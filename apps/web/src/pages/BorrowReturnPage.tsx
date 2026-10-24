@@ -16,15 +16,32 @@ import {
   User,
   Trash2,
 } from 'lucide-react';
-import { DemoDataNotice } from '../components/DemoDataNotice';
 import { StatusBadge } from '../components/StatusBadge';
 import { LoadingSkeleton, TableSkeleton } from '../components/common/LoadingSkeleton';
 import { EmptyState } from '../components/common/EmptyState';
 import { ConfirmationModal } from '../components/common/ConfirmationModal';
 import { apiClient } from '../services/api';
+import {
+  clearPendingBorrowReturn,
+  listPendingBorrowReturns,
+  readPendingBorrowReturn,
+  savePendingBorrowReturn,
+  listDurableBorrowReturnGuards,
+  clearDurableBorrowReturnGuard,
+  type DurableBorrowReturnGuard,
+  type PendingBorrowReturn,
+} from './borrowReturnPending';
+import { inspectBorrowReturnStatusResponse } from './borrowReturnStatusClient';
+import { inspectReturnHistoryResponse, type ReturnHistoryEntry } from './borrowReturnHistory';
 import { useAuth } from '../hooks/useAuth';
 import { canApproveBorrow, canProcessHandoverOrReturn } from '../config/access';
 import { useToast } from '../context/ToastContext';
+import {
+  buildReturnItems,
+  createReturnIdempotencyKey,
+  type ReturnCondition,
+  type ReturnInputRow,
+} from './borrowReturnPartial';
 
 interface BorrowDetailItem {
   id: string;
@@ -76,8 +93,65 @@ export const BorrowReturnPage: React.FC = () => {
 
   // Return dialog state
   const [returningBorrow, setReturningBorrow] = useState<BorrowRecord | null>(null);
-  const [returnCondition, setReturnCondition] = useState<'GOOD' | 'DAMAGED' | 'LOST'>('GOOD');
+  const [returnRows, setReturnRows] = useState<Record<string, ReturnInputRow>>({});
   const [returnNotes, setReturnNotes] = useState<string>('');
+  // Outstanding return intents survive reload in this tab until server confirmation.
+  const [pendingReturns, setPendingReturns] = useState<PendingBorrowReturn[]>([]);
+  const [lostReturnGuards, setLostReturnGuards] = useState<DurableBorrowReturnGuard[]>([]);
+  const [checkingLostReturn, setCheckingLostReturn] = useState<string | null>(null);
+  const [lostReturnMessages, setLostReturnMessages] = useState<Record<string, string>>({});
+  const activeActorRef = React.useRef(user?.id);
+  activeActorRef.current = user?.id;
+  // Stage 4C-1: server-backed, read-only return history, never permission to replay a lost POST.
+  const [historyBorrow, setHistoryBorrow] = useState<{ id: string; number: string } | null>(null);
+  const [historyItems, setHistoryItems] = useState<ReturnHistoryEntry[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyError, setHistoryError] = useState<string | null>(null);
+  const historyRequestRef = React.useRef(0);
+  const [returnStorageError, setReturnStorageError] = useState<string | null>(null);
+  // Only an explicit API 400/422 rejection permits an operator to release a saved intent.
+  const [rejectedReturn, setRejectedReturn] = useState<{
+    borrowId: string;
+    key: string;
+    status: 400 | 422;
+  } | null>(null);
+  const pendingReturnForDialog = Boolean(returningBorrow &&
+    pendingReturns.some((p) => p.borrowId === returningBorrow.id));
+
+  useEffect(() => {
+    // A previous actor's in-flight return must not alter the next actor's view.
+    setBorrows([]);
+    setItemsList([]);
+    setActionLoading(null);
+    setCheckingLostReturn(null);
+    setRejectedReturn(null);
+    setReturningBorrow(null);
+    historyRequestRef.current++;
+    setHistoryBorrow(null);
+    setHistoryItems([]);
+    setHistoryError(null);
+    setHistoryLoading(false);
+    setReturnRows({});
+    setReturnNotes('');
+    setReturnStorageError(null);
+    if (!user?.id) {
+      setPendingReturns([]);
+      setLostReturnGuards([]);
+      setLostReturnMessages({});
+      return;
+    }
+    try {
+      const pending = listPendingBorrowReturns(user.id);
+      const guards = listDurableBorrowReturnGuards(user.id);
+      setPendingReturns(pending);
+      setLostReturnGuards(guards.filter((g) => !pending.some((p) => p.borrowId === g.borrowId && p.key === g.key)));
+      setLostReturnMessages({});
+      setReturnStorageError(null);
+    } catch (err) {
+      setLostReturnGuards([]);
+      setReturnStorageError(err instanceof Error ? err.message : 'Không đọc được giao dịch tạm');
+    }
+  }, [user?.id]);
 
   // Reject dialog state
   const [rejectingBorrowId, setRejectingBorrowId] = useState<string | null>(null);
@@ -107,23 +181,27 @@ export const BorrowReturnPage: React.FC = () => {
   });
 
   const fetchBorrows = async () => {
+    const requestActor = activeActorRef.current;
     setLoading(true);
     try {
       const res = await apiClient.get('/borrow-requests');
-      if (res.data?.success) {
+      if (activeActorRef.current === requestActor && res.data?.success) {
         setBorrows(res.data.data);
       }
     } catch (err: any) {
-      toast.error('Lỗi tải dữ liệu', err?.response?.data?.message || 'Không thể tải danh sách phiếu mượn.');
+      if (activeActorRef.current === requestActor) {
+        toast.error('Lỗi tải dữ liệu', err?.response?.data?.message || 'Không thể tải danh sách phiếu mượn.');
+      }
     } finally {
-      setLoading(false);
+      if (activeActorRef.current === requestActor) setLoading(false);
     }
   };
 
   const fetchItems = async () => {
+    const requestActor = activeActorRef.current;
     try {
       const res = await apiClient.get('/items', { params: { limit: 100 } });
-      if (res.data?.success) {
+      if (activeActorRef.current === requestActor && res.data?.success) {
         // /items returns data as an array and pagination in meta, not data.items.
         // Accept the object shape only for backwards-compatible fixtures.
         const list = Array.isArray(res.data.data) ? res.data.data : res.data.data?.items || [];
@@ -143,9 +221,11 @@ export const BorrowReturnPage: React.FC = () => {
   };
 
   useEffect(() => {
-    fetchBorrows();
-    fetchItems();
-  }, []);
+    if (user?.id) {
+      fetchBorrows();
+      fetchItems();
+    }
+  }, [user?.id]);
 
   const openCreateModal = () => {
     setCreateFormData({
@@ -326,44 +406,232 @@ export const BorrowReturnPage: React.FC = () => {
     }
   };
 
+  const postSavedReturn = async (record: PendingBorrowReturn) => {
+    const res = await apiClient.post(
+      `/borrow-requests/${record.borrowId}/return`,
+      record.payload,
+      { headers: { 'Idempotency-Key': record.key } }
+    );
+    // Even a valid delayed receipt must not mutate a different actor's UI/storage.
+    // Leave the old actor's persisted key to be reconciled after switching back.
+    if (activeActorRef.current !== record.userId) return;
+    if (!res.data?.success) {
+      throw new Error('API không xác nhận giao dịch hoàn trả thành công');
+    }
+    // Check the server receipt before removing the only copy of the original key/payload.
+    const returnNumber = res.data?.data?.returnNumber;
+    const confirmedBorrowId = res.data?.data?.borrowRequest?.id;
+    if (typeof returnNumber !== 'string' || !returnNumber.trim() ||
+        confirmedBorrowId !== record.borrowId) {
+      throw new Error('Biên nhận hoàn trả thiếu mã giao dịch hoặc không khớp phiếu mượn; giữ nguyên yêu cầu đã lưu để đối soát');
+    }
+    // Only a verified matching server receipt authorizes clearing the saved intent.
+    clearPendingBorrowReturn(record.userId, record.borrowId, record.key);
+    setPendingReturns(listPendingBorrowReturns(record.userId));
+    setRejectedReturn((prev) => prev?.borrowId === record.borrowId && prev.key === record.key ? null : prev);
+    setReturnStorageError(null);
+    toast.success(
+      'Hoàn trả thành công',
+      `Đã ghi nhận giao dịch trả: ${returnNumber}`
+    );
+    if (returningBorrow?.id === record.borrowId) {
+      setReturningBorrow(null);
+      setReturnRows({});
+      setReturnNotes('');
+    }
+    await fetchBorrows();
+  };
+
+  const handleReturnFailure = (record: PendingBorrowReturn, err: any) => {
+    if (activeActorRef.current !== record.userId) return;
+    const status = err?.response?.status;
+    const body = err?.response?.data;
+    // A structured API rejection is different from timeout, 409, 5xx or malformed 2xx.
+    if ((status === 400 || status === 422) && body?.success === false &&
+        typeof body?.message === 'string' && body.message.trim()) {
+      setRejectedReturn({ borrowId: record.borrowId, key: record.key, status });
+      toast.error('Yêu cầu hoàn trả bị từ chối',
+        `${body.message} (HTTP ${status}). Yêu cầu được giữ lại cho đến khi bạn xác minh và xác nhận gỡ chặn.`);
+      return;
+    }
+    setRejectedReturn(null);
+    toast.error('Giao dịch chưa xác nhận',
+      err?.response?.data?.message || err?.message ||
+      'Giữ nguyên khóa và nội dung giao dịch đã lưu. Vui lòng kiểm tra trước khi gửi lại.');
+  };
+
+  const handleReleaseRejectedReturn = async () => {
+    if (!user?.id || !rejectedReturn || actionLoading || returnStorageError) return;
+    const rejected = rejectedReturn;
+    try {
+      const saved = readPendingBorrowReturn(user.id, rejected.borrowId);
+      if (!saved || saved.key !== rejected.key) {
+        throw new Error('Khóa giao dịch đang lưu không khớp — không thể gỡ chặn');
+      }
+      const confirmed = window.confirm(
+        `API đã trả HTTP ${rejected.status}, từ chối yêu cầu này. Chỉ xóa yêu cầu chờ nếu bạn đã đối soát và xác nhận chưa có giao dịch hoàn trả được ghi. Bạn có chắc muốn gỡ chặn không?`
+      );
+      if (!confirmed) return;
+      clearPendingBorrowReturn(saved.userId, saved.borrowId, saved.key);
+      setPendingReturns(listPendingBorrowReturns(saved.userId));
+      setRejectedReturn(null);
+      if (returningBorrow?.id === saved.borrowId) {
+        setReturningBorrow(null);
+        setReturnRows({});
+        setReturnNotes('');
+      }
+      toast.warning('Đã gỡ yêu cầu bị API từ chối',
+        'Hãy kiểm tra lại tồn kho và phiếu mượn trước khi tạo yêu cầu mới.');
+      await fetchBorrows();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Không thể đọc yêu cầu đã lưu';
+      setReturnStorageError(message);
+      toast.error('Không thể gỡ chặn an toàn', message);
+    }
+  };
+
   const handleReturnSubmit = async () => {
-    if (!returningBorrow || !returningBorrow.details) return;
+    if (!returningBorrow || actionLoading === returningBorrow.id || !user?.id || returnStorageError) return;
+    let saved: PendingBorrowReturn;
+    try {
+      const existing = readPendingBorrowReturn(user.id, returningBorrow.id);
+      if (existing) {
+        // Never recompute the body from an edited form when reusing a key.
+        saved = existing;
+      } else {
+        const returnItems = buildReturnItems(
+          returningBorrow.details || [], returnRows, returnNotes
+        );
+        saved = {
+          version: 1,
+          userId: user.id,
+          borrowId: returningBorrow.id,
+          key: createReturnIdempotencyKey(),
+          payload: {
+            items: returnItems,
+            notes: returnNotes.trim() || 'Hoàn trả linh kiện tại phòng Lab',
+          },
+          createdAt: Date.now(),
+        };
+        // Must persist before sending; fail closed if storage is unavailable.
+        savePendingBorrowReturn(saved);
+      }
+      setPendingReturns(listPendingBorrowReturns(user.id));
+    } catch (err) {
+      toast.error('Không thể gửi hoàn trả',
+        err instanceof Error ? err.message : 'Không lưu được giao dịch an toàn');
+      return;
+    }
     setActionLoading(returningBorrow.id);
     try {
-      const returnItems = returningBorrow.details
-        .filter((d) => d.quantity > (d.returnedQuantity || 0))
-        .map((d) => ({
-          borrowDetailId: d.id,
-          returnedQuantity: d.quantity - (d.returnedQuantity || 0),
-          condition: returnCondition,
-          notes: returnNotes || undefined,
-        }));
+      await postSavedReturn(saved);
+    } catch (err: any) {
+      handleReturnFailure(saved, err);
+    } finally {
+      if (activeActorRef.current === saved.userId) setActionLoading(null);
+    }
+  };
 
-      if (returnItems.length === 0) {
-        toast.warning('Thông báo', 'Không còn linh kiện nào cần hoàn trả trong phiếu này.');
-        setReturningBorrow(null);
+  const handleResumePendingReturn = async (borrowId: string) => {
+    if (!user?.id || actionLoading || returnStorageError) return;
+    let saved: PendingBorrowReturn;
+    try {
+      const existing = readPendingBorrowReturn(user.id, borrowId);
+      if (!existing) throw new Error('Không tìm thấy giao dịch đã lưu');
+      saved = existing;
+    } catch (err) {
+      toast.error('Không thể khôi phục giao dịch', err instanceof Error ? err.message : 'Lỗi dữ liệu');
+      return;
+    }
+    setActionLoading(borrowId);
+    try {
+      // Explicit click only: this POST might execute if the original never reached the server.
+      await postSavedReturn(saved);
+    } catch (err: any) {
+      handleReturnFailure(saved, err);
+    } finally {
+      if (activeActorRef.current === saved.userId) setActionLoading(null);
+    }
+  };
+  // Stage 2B: missing session payload means GET status only. Never POST a reconstructed return.
+  const handleCheckLostReturn = async (guard: DurableBorrowReturnGuard) => {
+    if (!user?.id || !canHandoverOrReturn || user.id !== guard.userId ||
+        actionLoading || checkingLostReturn || returnStorageError) return;
+    setCheckingLostReturn(guard.borrowId);
+    try {
+      const latest = listDurableBorrowReturnGuards(guard.userId)
+        .find((g) => g.borrowId === guard.borrowId);
+      if (!latest || latest.key !== guard.key) {
+        throw new Error('Dấu chặn đã thay đổi — vui lòng tải lại trang trước khi đối soát');
+      }
+      if (readPendingBorrowReturn(guard.userId, guard.borrowId)) {
+        throw new Error('Vẫn còn payload trong phiên; dùng luồng giao dịch đã lưu, không giải phóng dấu chặn này');
+      }
+      const res = await apiClient.get(
+        `/borrow-requests/${guard.borrowId}/return-status/${encodeURIComponent(guard.key)}`
+      );
+      if (activeActorRef.current !== guard.userId) {
+        throw new Error('Tài khoản đã thay đổi khi đang đối soát — giữ nguyên dấu chặn');
+      }
+      const result = inspectBorrowReturnStatusResponse(res.data, guard.borrowId);
+      if (result.kind !== 'COMPLETED') {
+        setLostReturnMessages((prev) => ({ ...prev, [guard.borrowId]: result.message }));
+        toast.warning('Chưa thể gỡ chặn hoàn trả', result.message);
         return;
       }
-
-      const res = await apiClient.post(`/borrow-requests/${returningBorrow.id}/return`, {
-        items: returnItems,
-        notes: returnNotes || 'Hoàn trả linh kiện tại phòng Lab',
-      });
-
-      if (res.data?.success) {
-        toast.success(
-          'Hoàn trả thành công',
-          `Đã nhập lại kho thành công! Mã giao dịch trả: ${res.data.data?.returnNumber || ''}`
-        );
-        setReturningBorrow(null);
-        setReturnNotes('');
-        await fetchBorrows();
+      const current = listDurableBorrowReturnGuards(guard.userId)
+        .find((g) => g.borrowId === guard.borrowId);
+      if (!current || current.key !== guard.key || readPendingBorrowReturn(guard.userId, guard.borrowId)) {
+        throw new Error('Dữ liệu giao dịch đã thay đổi trong lúc đối soát — giữ nguyên dấu chặn');
       }
+      // Verified status from this actor, this exact key and borrow request permits releasing metadata.
+      clearDurableBorrowReturnGuard(guard.userId, guard.borrowId, guard.key);
+      setLostReturnGuards(listDurableBorrowReturnGuards(guard.userId));
+      setLostReturnMessages((prev) => {
+        const updated = { ...prev };
+        delete updated[guard.borrowId];
+        return updated;
+      });
+      toast.success('Đã đối soát hoàn trả', `Đã xác nhận giao dịch ${result.returnNumber} từ máy chủ.`);
+      await fetchBorrows();
     } catch (err: any) {
-      toast.error('Lỗi hoàn trả', err.response?.data?.message || 'Có lỗi xảy ra khi xác nhận hoàn trả.');
+      if (activeActorRef.current !== guard.userId) return;
+      const message = 'Không thể tra cứu trạng thái: ' +
+        (err?.response?.data?.message || err?.message || 'Lỗi kết nối máy chủ');
+      setLostReturnMessages((prev) => ({ ...prev, [guard.borrowId]: message }));
+      toast.error('Không thể đối soát hoàn trả', message);
     } finally {
-      setActionLoading(null);
+      if (activeActorRef.current === guard.userId) setCheckingLostReturn(null);
     }
+  };
+
+  const handleOpenReturnHistory = async (borrow: BorrowRecord) => {
+    const actorId = activeActorRef.current;
+    if (!actorId || !canHandoverOrReturn) return;
+    const requestId = ++historyRequestRef.current;
+    setHistoryBorrow({ id: borrow.id, number: borrow.requestNumber });
+    setHistoryItems([]);
+    setHistoryError(null);
+    setHistoryLoading(true);
+    try {
+      const response = await apiClient.get(`/borrow-requests/${encodeURIComponent(borrow.id)}`);
+      if (activeActorRef.current !== actorId || historyRequestRef.current !== requestId) return;
+      setHistoryItems(inspectReturnHistoryResponse(response.data, borrow.id));
+    } catch (err: any) {
+      if (activeActorRef.current !== actorId || historyRequestRef.current !== requestId) return;
+      setHistoryError(err?.response?.data?.message || err?.message || 'Không tra cứu được lịch sử hoàn trả');
+    } finally {
+      if (activeActorRef.current === actorId && historyRequestRef.current === requestId) {
+        setHistoryLoading(false);
+      }
+    }
+  };
+  const closeReturnHistory = () => {
+    historyRequestRef.current++;
+    setHistoryBorrow(null);
+    setHistoryItems([]);
+    setHistoryError(null);
+    setHistoryLoading(false);
   };
 
   const overdueCount = borrows.filter((b) => b.isOverdue).length;
@@ -388,6 +656,70 @@ export const BorrowReturnPage: React.FC = () => {
 
   return (
     <div className="space-y-6">
+      {returnStorageError && (
+        <div role="alert" className="rounded-lg border border-rose-300 bg-rose-50 p-3 text-sm text-rose-900">
+          Không thể xác minh dữ liệu giao dịch hoàn trả đang lưu. Chặn thao tác hoàn trả mới:
+          {returnStorageError}
+        </div>
+      )}
+      {rejectedReturn && pendingReturns.some((p) =>
+        p.borrowId === rejectedReturn.borrowId && p.key === rejectedReturn.key) && (
+        <div role="alert" className="rounded-lg border border-orange-400 bg-orange-50 p-3 text-sm text-orange-900">
+          <strong>API đã từ chối giao dịch (HTTP {rejectedReturn.status}).</strong>
+          Yêu cầu vẫn được lưu nguyên vẹn để đối soát. Chỉ gỡ chặn khi đã xác nhận
+          giao dịch này chưa được ghi nhận; không áp dụng cho lỗi mạng, HTTP 409 hay 5xx.
+          <button
+            type="button"
+            onClick={handleReleaseRejectedReturn}
+            disabled={Boolean(actionLoading) || Boolean(returnStorageError)}
+            className="mt-2 block rounded border border-orange-500 bg-white px-3 py-2 text-xs font-semibold disabled:opacity-50"
+          >
+            Xóa yêu cầu đã bị từ chối sau khi đối soát
+          </button>
+        </div>
+      )}
+      {lostReturnGuards.length > 0 && (
+        <div role="alert" className="rounded-lg border border-rose-300 bg-rose-50 p-3 text-sm text-rose-900">
+          <strong>Có giao dịch hoàn trả mất dữ liệu phiên, chưa được đối soát.</strong>
+          <p className="mt-1">Không tạo giao dịch mới cho các phiếu này. Chỉ tra cứu trạng thái bằng
+            khóa đã lưu; không gửi lại POST khi không còn payload gốc.</p>
+          {lostReturnGuards.map((guard) => (
+            <div key={guard.key} className="mt-3 space-y-2 rounded border border-rose-200 p-2">
+              <p>Phiếu {guard.borrowId.slice(0, 8)} — khóa hoàn trả {guard.key.slice(0, 15)}…</p>
+              {canHandoverOrReturn && (
+                <button type="button"
+                  onClick={() => void handleCheckLostReturn(guard)}
+                  disabled={Boolean(actionLoading) || Boolean(checkingLostReturn) || Boolean(returnStorageError)}
+                  className="rounded border border-rose-500 bg-white px-3 py-2 text-xs font-semibold disabled:opacity-50">
+                  Kiểm tra trạng thái giao dịch ({guard.borrowId.slice(0, 8)})
+                </button>
+              )}
+              {lostReturnMessages[guard.borrowId] && (
+                <p role="status" className="text-xs font-semibold">{lostReturnMessages[guard.borrowId]}</p>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+      {pendingReturns.length > 0 && (
+        <div role="status" className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
+          <strong>Yêu cầu hoàn trả chưa được xác nhận.</strong> Mỗi lần gửi lại sử dụng
+          đúng khóa và nội dung đã gửi, kể cả sau khi tải lại trang. Không tự động gửi API.
+          <div className="mt-2 flex flex-wrap gap-2">
+            {pendingReturns.map((pending) => (
+              <button
+                key={pending.key}
+                type="button"
+                onClick={() => handleResumePendingReturn(pending.borrowId)}
+                disabled={Boolean(actionLoading) || Boolean(returnStorageError)}
+                className="rounded-lg border border-amber-500 bg-white px-3 py-2 text-xs font-semibold disabled:opacity-50"
+              >
+                Gửi lại giao dịch đã lưu ({pending.borrowId.slice(0, 8)})
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
       {/* Header */}
       <div className="flex flex-col justify-between space-y-4 sm:flex-row sm:items-center sm:space-y-0">
         <div>
@@ -417,7 +749,6 @@ export const BorrowReturnPage: React.FC = () => {
         </div>
       </div>
 
-      <DemoDataNotice moduleName="Borrow & Return Management" />
 
       {/* Filter Tabs & Search */}
       <div className="flex flex-col space-y-3 sm:flex-row sm:items-center sm:justify-between sm:space-y-0">
@@ -481,8 +812,38 @@ export const BorrowReturnPage: React.FC = () => {
         />
       ) : (
         <div className="rounded-xl border border-slate-200/80 bg-white shadow-sm overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs">
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 bg-slate-50 px-3 py-2 lg:hidden">
+            <span className="text-[11px] text-slate-600">
+              Cuộn ngang để xem đủ thông tin
+            </span>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => document.getElementById('acm-borrow-table-scroll')?.scrollTo({ left: 0, behavior: 'smooth' })}
+                className="rounded border border-slate-300 bg-white px-2 py-1 text-xs text-slate-700"
+              >
+                ← Mã phiếu
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const el = document.getElementById('acm-borrow-table-scroll');
+                  if (el) el.scrollTo({ left: el.scrollWidth, behavior: 'smooth' });
+                }}
+                className="rounded bg-blue-600 px-2 py-1 text-xs text-white"
+              >
+                Thao tác →
+              </button>
+            </div>
+          </div>
+          <div
+            id="acm-borrow-table-scroll"
+            role="region"
+            aria-label="Bảng phiếu mượn có thể cuộn ngang"
+            tabIndex={0}
+            className="overflow-x-auto overscroll-x-contain"
+          >
+            <table className="w-full min-w-[960px] text-left text-xs">
               <thead className="border-b border-slate-200/80 bg-slate-50 font-semibold text-slate-600">
                 <tr>
                   <th className="py-3 px-4">Mã phiếu</th>
@@ -529,6 +890,7 @@ export const BorrowReturnPage: React.FC = () => {
                       {b.itemCount} loại
                     </td>
                     <td className="py-3 px-4 text-center whitespace-nowrap">
+                      <div className="mb-1 font-mono text-[10px] text-slate-500 lg:hidden">{b.requestNumber}</div>
                       {b.status === 'PENDING' && canManage && (
                         <div className="inline-flex items-center space-x-1.5">
                           <button
@@ -601,11 +963,42 @@ export const BorrowReturnPage: React.FC = () => {
                         </div>
                       )}
 
+                      {canHandoverOrReturn && ['HANDED_OVER', 'PARTIALLY_RETURNED', 'RETURNED'].includes(b.status) && (
+                        <button
+                          type="button"
+                          onClick={() => { void handleOpenReturnHistory(b); }}
+                          className="mr-2 inline-flex items-center rounded bg-sky-50 px-2.5 py-1 text-[11px] font-semibold text-sky-700 hover:bg-sky-100"
+                        >
+                          Đối soát lịch sử
+                        </button>
+                      )}
+
                       {(b.status === 'HANDED_OVER' || b.status === 'PARTIALLY_RETURNED') && canHandoverOrReturn && (
                         <button
                           onClick={() => {
+                            const details = b.details || [];
+
+                            if (!details.some((d) => d.quantity > (d.returnedQuantity || 0))) {
+                              toast.warning(
+                                'Không còn số lượng phải trả',
+                                'Phiếu mượn này không còn linh kiện cần hoàn trả.'
+                              );
+                              return;
+                            }
+
+                            const nextRows: Record<string, ReturnInputRow> = {};
+
+                            details.forEach((d) => {
+                              if (d.quantity > (d.returnedQuantity || 0)) {
+                                nextRows[d.id] = {
+                                  quantity: '0',
+                                  condition: 'GOOD',
+                                };
+                              }
+                            });
+
+                            setReturnRows(nextRows);
                             setReturningBorrow(b);
-                            setReturnCondition('GOOD');
                             setReturnNotes('');
                           }}
                           disabled={actionLoading === b.id}
@@ -847,7 +1240,7 @@ export const BorrowReturnPage: React.FC = () => {
       {/* Return Dialog */}
       {returningBorrow && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4 backdrop-blur-sm animate-in fade-in duration-200">
-          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl border border-slate-200">
+          <div className="w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-2xl bg-white p-6 shadow-2xl border border-slate-200">
             <h3 className="text-sm font-bold text-slate-900 flex items-center space-x-2">
               <CornerDownLeft className="h-4 w-4 text-emerald-600" />
               <span>Xác nhận hoàn trả linh kiện ({returningBorrow.requestNumber})</span>
@@ -857,50 +1250,106 @@ export const BorrowReturnPage: React.FC = () => {
             </p>
 
             <div className="mt-4 space-y-3 text-xs">
-              <div>
-                <label className="block font-semibold text-slate-700 mb-1">
-                  Tình trạng kiểm tra thực tế:
-                </label>
-                <div className="grid grid-cols-3 gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setReturnCondition('GOOD')}
-                    className={`py-2 px-2 rounded-lg font-semibold border ${
-                      returnCondition === 'GOOD'
-                        ? 'border-emerald-600 bg-emerald-50 text-emerald-700'
-                        : 'border-slate-200 text-slate-600 hover:bg-slate-50'
-                    }`}
-                  >
-                    Tốt (Nhập kho)
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setReturnCondition('DAMAGED')}
-                    className={`py-2 px-2 rounded-lg font-semibold border ${
-                      returnCondition === 'DAMAGED'
-                        ? 'border-amber-600 bg-amber-50 text-amber-700'
-                        : 'border-slate-200 text-slate-600 hover:bg-slate-50'
-                    }`}
-                  >
-                    Hỏng (Cách ly)
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setReturnCondition('LOST')}
-                    className={`py-2 px-2 rounded-lg font-semibold border ${
-                      returnCondition === 'LOST'
-                        ? 'border-rose-600 bg-rose-50 text-rose-700'
-                        : 'border-slate-200 text-slate-600 hover:bg-slate-50'
-                    }`}
-                  >
-                    Mất (Bồi hoàn)
-                  </button>
-                </div>
-              </div>
+              <div className="space-y-3">
+                <p className="text-slate-600">
+                  Chọn số lượng trả cho từng linh kiện. Mặc định là 0 để tránh
+                  hoàn trả nhầm toàn bộ. Chỉ những dòng có số lượng lớn hơn 0
+                  mới được gửi lên hệ thống.
+                </p>
 
+                {returningBorrow.details
+                  ?.filter((d) => d.quantity > (d.returnedQuantity || 0))
+                  .map((d) => {
+                    const remaining = d.quantity - (d.returnedQuantity || 0);
+                    const selection = returnRows[d.id] || {
+                      quantity: '0',
+                      condition: 'GOOD' as const,
+                    };
+                    const itemLabel = d.item?.code || d.itemId;
+
+                    return (
+                      <div
+                        key={d.id}
+                        className="rounded-lg border border-slate-200 bg-slate-50 p-3 space-y-2"
+                      >
+                        <div className="font-semibold text-slate-900">
+                          {d.item?.name || itemLabel} ({itemLabel})
+                        </div>
+                        <div className="text-slate-500">
+                          Đã mượn: {d.quantity} · Đã trả: {d.returnedQuantity || 0}
+                          {' · '}Còn lại: {remaining}
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                          <div>
+                            <label
+                              htmlFor={`return-quantity-${d.id}`}
+                              className="block font-semibold text-slate-700 mb-1"
+                            >
+                              Số lượng trả lần này
+                            </label>
+                            <input disabled={pendingReturnForDialog}
+                              id={`return-quantity-${d.id}`}
+                              aria-label={`Số lượng trả ${itemLabel}`}
+                              type="number"
+                              min={0}
+                              max={remaining}
+                              step={1}
+                              value={selection.quantity}
+                              onChange={(e) =>
+                                setReturnRows((prev) => ({
+                                  ...prev,
+                                  [d.id]: {
+                                    ...(prev[d.id] || {
+                                      quantity: '0',
+                                      condition: 'GOOD' as const,
+                                    }),
+                                    quantity: e.target.value,
+                                  },
+                                }))
+                              }
+                              className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2"
+                            />
+                          </div>
+
+                          <div>
+                            <label
+                              htmlFor={`return-condition-${d.id}`}
+                              className="block font-semibold text-slate-700 mb-1"
+                            >
+                              Tình trạng
+                            </label>
+                            <select disabled={pendingReturnForDialog}
+                              id={`return-condition-${d.id}`}
+                              aria-label={`Tình trạng trả ${itemLabel}`}
+                              value={selection.condition}
+                              onChange={(e) =>
+                                setReturnRows((prev) => ({
+                                  ...prev,
+                                  [d.id]: {
+                                    ...(prev[d.id] || {
+                                      quantity: '0',
+                                      condition: 'GOOD' as const,
+                                    }),
+                                    condition: e.target.value as ReturnCondition,
+                                  },
+                                }))
+                              }
+                              className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2"
+                            >
+                              <option value="GOOD">GOOD — Tốt</option>
+                              <option value="DAMAGED">DAMAGED — Hỏng, cách ly</option>
+                              <option value="LOST">LOST — Mất</option>
+                            </select>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+              </div>
               <div>
                 <label className="block font-semibold text-slate-700 mb-1">Ghi chú kiểm tra</label>
-                <textarea
+                <textarea disabled={pendingReturnForDialog}
                   rows={2}
                   value={returnNotes}
                   onChange={(e) => setReturnNotes(e.target.value)}
@@ -909,6 +1358,12 @@ export const BorrowReturnPage: React.FC = () => {
                 />
               </div>
 
+              {pendingReturnForDialog && (
+                <p role="status" className="mt-3 rounded-lg bg-amber-50 p-2 text-xs text-amber-900">
+                  Yêu cầu hoàn trả này đã được gửi hoặc đang chờ xác minh. Biểu mẫu đã khóa;
+                  nhấn “Xác nhận nhận trả” để gửi lại đúng khóa và nội dung ban đầu.
+                </p>
+              )}
               <div className="mt-5 flex justify-end space-x-2 border-t border-slate-100 pt-3">
                 <button
                   type="button"
@@ -928,6 +1383,46 @@ export const BorrowReturnPage: React.FC = () => {
                 </button>
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Stage 4C-1: read-only history from the server. Never clears pending guards. */}
+      {historyBorrow && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4">
+          <div role="dialog" aria-label="Đối soát lịch sử hoàn trả"
+            className="w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-2xl bg-white p-6 shadow-2xl">
+            <h3 className="text-base font-bold">Lịch sử hoàn trả — {historyBorrow.number}</h3>
+            <p className="mt-2 text-xs text-amber-800">
+              Chỉ là dữ liệu đã ghi nhận trên máy chủ. Không thấy giao dịch không chứng minh một yêu cầu
+              bị mất đã không thực hiện; hãy đối soát trước khi tạo lần trả mới.
+            </p>
+            {historyLoading && <p role="status" className="mt-3 text-sm">Đang tải lịch sử...</p>}
+            {historyError && <p role="alert" className="mt-3 text-sm text-rose-700">
+              Không xác minh được lịch sử: {historyError}. Không coi đây là bằng chứng chưa hoàn trả.
+            </p>}
+            {!historyLoading && !historyError && historyItems.length === 0 && (
+              <p className="mt-3 text-sm">Máy chủ chưa trả về bản ghi hoàn trả. Điều này không chứng minh yêu cầu trước chưa được ghi.</p>
+            )}
+            {!historyLoading && !historyError && historyItems.map((entry) => (
+              <div key={entry.id} className="mt-3 rounded-lg border border-slate-200 p-3 text-sm">
+                <div className="font-semibold">{entry.returnNumber}</div>
+                <div className="text-xs text-slate-600">
+                  {new Date(entry.createdAt).toLocaleString('vi-VN')} · Người nhận: {entry.receiverName}
+                </div>
+                <ul className="mt-2 list-disc pl-5 text-xs">
+                  {entry.details.map((detail, index) => (
+                    <li key={`${entry.id}-${index}`}>
+                      {detail.itemLabel}: {detail.quantity} · {detail.condition}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))}
+            <button type="button" onClick={closeReturnHistory}
+              className="mt-4 rounded bg-slate-100 px-3 py-2 text-sm font-semibold">
+              Đóng lịch sử hoàn trả
+            </button>
           </div>
         </div>
       )}
