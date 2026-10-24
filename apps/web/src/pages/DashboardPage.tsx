@@ -16,7 +16,6 @@ import {
   ExternalLink,
 } from 'lucide-react';
 import { KpiCard } from '../components/KpiCard';
-import { DemoDataNotice } from '../components/DemoDataNotice';
 import { apiClient } from '../services/api';
 import { useAuth } from '../hooks/useAuth';
 import {
@@ -144,7 +143,6 @@ export const DashboardPage: React.FC = () => {
         </div>
       </div>
 
-      <DemoDataNotice moduleName="Dashboard & KPI Metrics" />
 
       {/* Primary KPI Grid */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -191,14 +189,14 @@ export const DashboardPage: React.FC = () => {
         <div className="rounded-xl border border-slate-200/80 bg-white p-4 shadow-sm flex items-center justify-between">
           <div>
             <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">
-              Phiếu mượn cần xử lý
+              Phiếu chờ phê duyệt
             </span>
             <div className="mt-1 text-xl font-bold text-slate-900">
-              {kpis.activeBorrows}{' '}
+              {kpis.pendingApprovalBorrows}{' '}
               <span className="text-xs font-normal text-slate-500">phiếu</span>
             </div>
             <p className="text-[11px] text-slate-500 mt-0.5">
-              {kpis.pendingApprovalBorrows} chờ duyệt •{' '}
+              {kpis.activeBorrows} đã duyệt/bàn giao •{' '}
               <span className={kpis.overdueBorrows > 0 ? 'text-rose-600 font-semibold' : 'text-slate-500'}>
                 {kpis.overdueBorrows} quá hạn
               </span>
