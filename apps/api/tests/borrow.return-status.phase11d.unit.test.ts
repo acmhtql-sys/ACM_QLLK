@@ -1,0 +1,108 @@
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { getBorrowReturnStatus } from '../src/modules/borrow/borrow.return-status';
+import { prisma } from '../src/config/database';
+import { borrowService } from '../src/modules/borrow/borrow.service';
+import { AppError } from '../src/shared/AppError';
+
+vi.mock('../src/config/database', () => ({
+  prisma: { idempotencyRecord: { findUnique: vi.fn() } },
+}));
+vi.mock('../src/modules/borrow/borrow.service', () => ({
+  borrowService: { getBorrowRequestById: vi.fn() },
+}));
+
+const borrowId = '22222222-2222-4222-8222-222222222222';
+const key = 'return_0123456789abcdef0123456789abcdef';
+const route = `/api/v1/borrow-requests/${borrowId}/return`;
+const user = {
+  id: '11111111-1111-4111-8111-111111111111', role: 'TECHNICIAN',
+  email: 'technician@example.test', fullName: 'Test Technician',
+};
+const record = (overrides: Record<string, unknown> = {}) => ({
+  userId: user.id, endpoint: route, status: 'COMPLETED', statusCode: 200,
+  responseBody: { returnNumber: 'RT-TEST-0001', borrowRequest: { id: borrowId } },
+  ...overrides,
+});
+const lookup = () => (prisma.idempotencyRecord.findUnique as any);
+const borrowLookup = () => (borrowService.getBorrowRequestById as any);
+
+beforeEach(() => {
+  vi.resetAllMocks();
+  borrowLookup().mockResolvedValue({ id: borrowId });
+  lookup().mockResolvedValue(null);
+});
+
+describe('Phase 11D — read-only lost-session return-key status', () => {
+  it('STATUS-01: returns verified receipt without applying any return', async () => {
+    lookup().mockResolvedValue(record());
+    expect(await getBorrowReturnStatus(borrowId, key, user as any)).toEqual({
+      state: 'COMPLETED', requiresReconciliation: false,
+      receipt: { returnNumber: 'RT-TEST-0001', borrowRequestId: borrowId },
+    });
+    expect(lookup()).toHaveBeenCalledWith({
+      where: { key },
+      select: { userId: true, endpoint: true, status: true, statusCode: true, responseBody: true },
+    });
+  });
+
+  it('STATUS-02: refuses to treat a missing record as proof of non-commit', async () => {
+    expect(await getBorrowReturnStatus(borrowId, key, user as any))
+      .toEqual({ state: 'NOT_FOUND', requiresReconciliation: true });
+  });
+
+  it('STATUS-03: never discloses another actor’s cached receipt', async () => {
+    lookup().mockResolvedValue(record({ userId: '99999999-9999-4999-8999-999999999999' }));
+    expect(await getBorrowReturnStatus(borrowId, key, user as any))
+      .toEqual({ state: 'NOT_FOUND', requiresReconciliation: true });
+  });
+
+  it('STATUS-04: never discloses receipt from another endpoint', async () => {
+    lookup().mockResolvedValue(record({ endpoint: '/api/v1/inventory/import' }));
+    expect(await getBorrowReturnStatus(borrowId, key, user as any))
+      .toEqual({ state: 'NOT_FOUND', requiresReconciliation: true });
+  });
+
+  it('STATUS-05: PENDING and FAILED require operator reconciliation', async () => {
+    for (const status of ['PENDING', 'FAILED'] as const) {
+      lookup().mockResolvedValue(record({ status }));
+      expect(await getBorrowReturnStatus(borrowId, key, user as any))
+        .toEqual({ state: status, requiresReconciliation: true });
+    }
+  });
+
+  it('STATUS-06: corrupt success cache never returns a completed receipt', async () => {
+    for (const bad of [
+      { returnNumber: 'RT-TEST-0001' },
+      { returnNumber: '', borrowRequest: { id: borrowId } },
+      { returnNumber: 'RT-TEST-0001', borrowRequest: { id: 'other' } },
+      null,
+    ]) {
+      lookup().mockResolvedValue(record({ responseBody: bad }));
+      expect(await getBorrowReturnStatus(borrowId, key, user as any))
+        .toEqual({ state: 'NEEDS_RECONCILIATION', requiresReconciliation: true });
+    }
+  });
+
+  it('STATUS-07: malformed key or borrow ID rejected before querying storage', async () => {
+    await expect(getBorrowReturnStatus(borrowId, 'BAD', user as any)).rejects
+      .toMatchObject({ statusCode: 422 });
+    await expect(getBorrowReturnStatus('not-a-uuid', key, user as any)).rejects
+      .toMatchObject({ statusCode: 422 });
+    expect(lookup()).not.toHaveBeenCalled();
+  });
+
+  it('STATUS-08: authorization failure blocks key lookup', async () => {
+    borrowLookup().mockRejectedValueOnce(new AppError('Không được truy cập', 403));
+    await expect(getBorrowReturnStatus(borrowId, key, user as any)).rejects
+      .toMatchObject({ statusCode: 403 });
+    expect(lookup()).not.toHaveBeenCalled();
+  });
+
+  it('STATUS-09: incomplete or non-200 completion remains unresolved', async () => {
+    for (const invalid of [record({ statusCode: 202 }), record({ status: 'MYSTERY' })]) {
+      lookup().mockResolvedValue(invalid);
+      expect(await getBorrowReturnStatus(borrowId, key, user as any))
+        .toEqual({ state: 'NEEDS_RECONCILIATION', requiresReconciliation: true });
+    }
+  });
+});

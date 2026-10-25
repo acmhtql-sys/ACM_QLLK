@@ -1,7 +1,10 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import request from 'supertest';
+import { randomUUID } from 'node:crypto';
 import bcrypt from 'bcryptjs';
+import jwt from 'jsonwebtoken';
 import { createApp } from '../src/app';
+import { env } from '../src/config/env';
 import { prisma, checkDatabaseConnection } from '../src/config/database';
 import { ItemType, UserRole, AssetCondition } from '@acm/shared';
 import { loginRateLimiter } from '../src/middleware/rateLimiter';
@@ -25,6 +28,15 @@ describe('ACM Phase 8 – Comprehensive Integration & E2E Acceptance Test Suite'
 
   const cleanupItemIds: string[] = [];
   const cleanupBorrowRequestIds: string[] = [];
+  // Record every return request key (including both concurrent attempts)
+  // so cleanup never needs to delete records outside this suite.
+  const e2eReturnKeys: string[] = [];
+  const trackedE2EReturnKey = (): string => {
+    const key = 'borrow_' + randomUUID();
+    e2eReturnKeys.push(key);
+    return key;
+  };
+
 
   beforeEach(() => {
     loginRateLimiter.reset();
@@ -55,38 +67,51 @@ describe('ACM Phase 8 – Comprehensive Integration & E2E Acceptance Test Suite'
     expect(location).toBeTruthy();
     testLocationId = location!.id;
 
-    // Authenticate 4 system roles to simulate active sessions
-    const adminRes = await request(app)
-      .post('/api/v1/auth/login')
-      .send({ email: 'admin@acm.local', password: 'ACM@dev2026!' });
-    expect(adminRes.status).toBe(200);
-    expect(adminRes.body.success).toBe(true);
-    adminToken = adminRes.body.data.token;
-
-    const managerRes = await request(app)
-      .post('/api/v1/auth/login')
-      .send({ email: 'manager@acm.local', password: 'ACM@dev2026!' });
-    expect(managerRes.status).toBe(200);
-    managerToken = managerRes.body.data.token;
-
-    const techRes = await request(app)
-      .post('/api/v1/auth/login')
-      .send({ email: 'tech@acm.local', password: 'ACM@dev2026!' });
-    expect(techRes.status).toBe(200);
-    techToken = techRes.body.data.token;
-
-    const studentRes = await request(app)
-      .post('/api/v1/auth/login')
-      .send({ email: 'student@acm.local', password: 'ACM@dev2026!' });
-    expect(studentRes.status).toBe(200);
-    studentToken = studentRes.body.data.token;
-    studentUserId = studentRes.body.data.user.id;
+    // Test-only JWT fixtures: existing users are read-only.
+    // The real authenticate middleware still verifies each user in PostgreSQL.
+    for (const [email, role, target] of [
+      ['admin@acm.local', UserRole.ADMIN, 'admin'],
+      ['manager@acm.local', UserRole.LAB_MANAGER, 'manager'],
+      ['tech@acm.local', UserRole.TECHNICIAN, 'tech'],
+      ['student@acm.local', UserRole.STUDENT, 'student'],
+    ] as const) {
+      const seedUser = await prisma.user.findUnique({
+        where: { email },
+        select: { id: true, email: true, fullName: true, role: true, isActive: true, isLocked: true },
+      });
+      if (!seedUser || !seedUser.isActive || seedUser.isLocked || seedUser.role !== role) {
+        throw new Error('E2E seed role/identity is missing or unavailable: ' + email);
+      }
+      const token = jwt.sign(
+        { id: seedUser.id, email: seedUser.email, role: seedUser.role, fullName: seedUser.fullName },
+        env.JWT_SECRET,
+        { expiresIn: env.JWT_EXPIRES_IN as any },
+      );
+      if (target === 'admin') adminToken = token;
+      if (target === 'manager') managerToken = token;
+      if (target === 'tech') techToken = token;
+      if (target === 'student') { studentToken = token; studentUserId = seedUser.id; }
+    }
   });
 
   afterAll(async () => {
     // Clean up created entities safely
     try {
+      // Return keys belong only to this test suite; remove cached results
+      // before their parent test fixture borrow requests are deleted.
+      if (e2eReturnKeys.length > 0) {
+        await prisma.idempotencyRecord.deleteMany({
+          where: { key: { in: e2eReturnKeys } },
+        });
+        const leftovers = await prisma.idempotencyRecord.count({
+          where: { key: { in: e2eReturnKeys } },
+        });
+        if (leftovers !== 0) throw new Error('PHASE8 RETURN IDEMPOTENCY CLEANUP FAILED');
+      }
       for (const reqId of cleanupBorrowRequestIds) {
+        await prisma.auditLog.deleteMany({
+          where: { entity: 'BorrowRequest', entityId: reqId },
+        });
         const returnTxs = await prisma.returnTransaction.findMany({ where: { borrowRequestId: reqId } });
         for (const rtx of returnTxs) {
           await prisma.returnDetail.deleteMany({ where: { returnTransactionId: rtx.id } });
@@ -106,7 +131,8 @@ describe('ACM Phase 8 – Comprehensive Integration & E2E Acceptance Test Suite'
         await prisma.item.deleteMany({ where: { id: itemId } });
       }
     } catch (err) {
-      console.warn('Cleanup warning:', err);
+      console.error('Cleanup failed:', err);
+      throw err;
     } finally {
       loginRateLimiter.destroy();
     }
@@ -117,24 +143,53 @@ describe('ACM Phase 8 – Comprehensive Integration & E2E Acceptance Test Suite'
   // =========================================================================
   describe('1. Authentication & Security Flows', () => {
     it('TC-E2E-AUTH-01: successfully authenticates valid user credentials and returns live JWT session', async () => {
-      const res = await request(app)
-        .post('/api/v1/auth/login')
-        .send({ email: 'admin@acm.local', password: 'ACM@dev2026!' });
+      const role = await prisma.role.findUnique({ where: { name: 'ADMIN' } });
+      expect(role).not.toBeNull();
+      const email = 'e2e-auth-valid-' + randomUUID() + '@acm.local';
+      const password = 'E2E-valid-' + randomUUID() + '!';
+      const fixture = await prisma.user.create({
+        data: {
+          email, fullName: 'E2E isolated admin login fixture', role: UserRole.ADMIN,
+          roleId: role!.id, passwordHash: await bcrypt.hash(password, 4),
+        },
+      });
+      try {
+        const res = await request(app)
+          .post('/api/v1/auth/login')
+          .send({ email, password });
 
-      expect(res.status).toBe(200);
-      expect(res.body.success).toBe(true);
-      expect(res.body.data).toHaveProperty('token');
-      expect(res.body.data.user).toHaveProperty('email', 'admin@acm.local');
-      expect(res.body.data.user).toHaveProperty('role', 'ADMIN');
+        expect(res.status).toBe(200);
+        expect(res.body.success).toBe(true);
+        expect(res.body.data).toHaveProperty('token');
+        expect(res.body.data.user).toHaveProperty('email', email);
+        expect(res.body.data.user).toHaveProperty('role', 'ADMIN');
+      } finally {
+        await prisma.auditLog.deleteMany({ where: { userId: fixture.id } });
+        await prisma.user.delete({ where: { id: fixture.id } });
+      }
     });
 
     it('TC-E2E-AUTH-02: rejects invalid password with HTTP 401', async () => {
-      const res = await request(app)
-        .post('/api/v1/auth/login')
-        .send({ email: 'admin@acm.local', password: 'CompletelyWrongPassword!' });
+      const role = await prisma.role.findUnique({ where: { name: 'ADMIN' } });
+      expect(role).not.toBeNull();
+      const email = 'e2e-auth-denied-' + randomUUID() + '@acm.local';
+      const fixture = await prisma.user.create({
+        data: {
+          email, fullName: 'E2E isolated invalid login fixture', role: UserRole.ADMIN,
+          roleId: role!.id, passwordHash: await bcrypt.hash('E2E-valid-' + randomUUID() + '!', 4),
+        },
+      });
+      try {
+        const res = await request(app)
+          .post('/api/v1/auth/login')
+          .send({ email, password: 'CompletelyWrongPassword!' });
 
-      expect(res.status).toBe(401);
-      expect(res.body.success).toBe(false);
+        expect(res.status).toBe(401);
+        expect(res.body.success).toBe(false);
+      } finally {
+        await prisma.auditLog.deleteMany({ where: { userId: fixture.id } });
+        await prisma.user.delete({ where: { id: fixture.id } });
+      }
     });
 
     it('TC-E2E-AUTH-06: atomically locks an isolated account after five concurrent wrong passwords', async () => {
@@ -593,7 +648,7 @@ describe('ACM Phase 8 – Comprehensive Integration & E2E Acceptance Test Suite'
       const beforeReturns = await prisma.returnTransaction.count({ where: { borrowRequestId: testBorrowRequestId } });
 
       const rejected = await request(app)
-        .post(`/api/v1/borrow-requests/${testBorrowRequestId}/return`)
+        .post(`/api/v1/borrow-requests/${testBorrowRequestId}/return`).set('Idempotency-Key', trackedE2EReturnKey())
         .set('Authorization', `Bearer ${techToken}`)
         .send({
           items: [
@@ -622,7 +677,7 @@ describe('ACM Phase 8 – Comprehensive Integration & E2E Acceptance Test Suite'
       });
       const invalidDestination = '00000000-0000-4000-8000-000000000001';
       const res = await request(app)
-        .post(`/api/v1/borrow-requests/${testBorrowRequestId}/return`)
+        .post(`/api/v1/borrow-requests/${testBorrowRequestId}/return`).set('Idempotency-Key', trackedE2EReturnKey())
         .set('Authorization', `Bearer ${techToken}`)
         .send({
           items: [{ borrowDetailId: testBorrowDetailId, returnedQuantity: 1,
@@ -640,7 +695,7 @@ describe('ACM Phase 8 – Comprehensive Integration & E2E Acceptance Test Suite'
 
     it('TC-E2E-BORROW-05: TECHNICIAN confirms return in GOOD condition and reconciles inventory stock', async () => {
       const res = await request(app)
-        .post(`/api/v1/borrow-requests/${testBorrowRequestId}/return`)
+        .post(`/api/v1/borrow-requests/${testBorrowRequestId}/return`).set('Idempotency-Key', trackedE2EReturnKey())
         .set('Authorization', `Bearer ${techToken}`)
         .send({
           items: [
@@ -701,7 +756,7 @@ describe('ACM Phase 8 – Comprehensive Integration & E2E Acceptance Test Suite'
       expect(handedOver.status).toBe(200);
 
       const response = await Promise.all(Array.from({ length: 2 }, () =>
-        request(app).post(`/api/v1/borrow-requests/${requestId}/return`)
+        request(app).post(`/api/v1/borrow-requests/${requestId}/return`).set('Idempotency-Key', trackedE2EReturnKey())
           .set('Authorization', `Bearer ${techToken}`)
           .send({ items: [{ borrowDetailId: detailId, returnedQuantity: 1,
             condition: AssetCondition.GOOD }] })

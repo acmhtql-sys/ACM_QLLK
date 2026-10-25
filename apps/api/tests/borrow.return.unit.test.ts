@@ -1328,6 +1328,62 @@ describe('ACM Phase 4 – Borrow & Return Management Test Suite', () => {
   });
 
   describe('9. HTTP Router Layer & Endpoints', () => {
+    it('TC-BR-32: missing Idempotency-Key rejects return with HTTP 400', async () => {
+      const { req, res, next, getError, waitForCompletion } = createMockContext({
+        method: 'POST',
+        url: `/${borrowRequestId}/return`,
+        headers: createAuthHeaders(technicianUser),
+        params: { id: borrowRequestId },
+        body: { items: [{ borrowDetailId, returnedQuantity: 1, condition: AssetCondition.GOOD }] },
+        user: technicianUser,
+      });
+      borrowRouter(req, res, next);
+      await waitForCompletion();
+      expect(getError()).toBeInstanceOf(AppError);
+      expect(getError()?.statusCode).toBe(400);
+    });
+
+    it('TC-BR-33: malformed Idempotency-Key rejects return with HTTP 400', async () => {
+      const { req, res, next, getError, waitForCompletion } = createMockContext({
+        method: 'POST',
+        url: `/${borrowRequestId}/return`,
+        headers: { ...createAuthHeaders(technicianUser), 'idempotency-key': 'bad!' },
+        params: { id: borrowRequestId },
+        body: { items: [{ borrowDetailId, returnedQuantity: 1, condition: AssetCondition.GOOD }] },
+        user: technicianUser,
+      });
+      borrowRouter(req, res, next);
+      await waitForCompletion();
+      expect(getError()).toBeInstanceOf(AppError);
+      expect(getError()?.statusCode).toBe(400);
+    });
+
+    it('TC-BR-34: valid Idempotency-Key is forwarded to return service', async () => {
+      const key = 'borrow_router_valid_key_01';
+      const spy = vi.spyOn(borrowService, 'returnBorrowRequest').mockResolvedValueOnce({
+        borrowRequest: { id: borrowRequestId, status: BorrowStatus.PARTIALLY_RETURNED } as any,
+        returnNumber: 'RT-TEST-KEY',
+      });
+      const { req, res, next, getError, waitForCompletion } = createMockContext({
+        method: 'POST',
+        url: `/${borrowRequestId}/return`,
+        headers: { ...createAuthHeaders(technicianUser), 'idempotency-key': key },
+        params: { id: borrowRequestId },
+        body: { items: [{ borrowDetailId, returnedQuantity: 1, condition: AssetCondition.GOOD }] },
+        user: technicianUser,
+      });
+      borrowRouter(req, res, next);
+      await waitForCompletion();
+      expect(getError()).toBeNull();
+      expect(res.statusCode).toBe(200);
+      expect(spy).toHaveBeenCalledWith(
+        borrowRequestId,
+        expect.objectContaining({ items: [expect.objectContaining({ borrowDetailId })] }),
+        expect.objectContaining({ id: technicianUser.id }),
+        key
+      );
+    });
+
     it('TC-BR-26: POST / with invalid date range triggers 422 error', async () => {
       const { req, res, next, getError, waitForCompletion } = createMockContext({
         method: 'POST',

@@ -2,14 +2,24 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import bcrypt from 'bcryptjs';
+import jwt from 'jsonwebtoken';
 import request from 'supertest';
+import { randomUUID } from 'node:crypto';
 import { createApp } from '../src/app';
 import { prisma } from '../src/config/database';
+import { env } from '../src/config/env';
 import { loginRateLimiter } from '../src/middleware/rateLimiter';
 import { AssetCondition, ItemType } from '@acm/shared';
 
 // Explicitly isolated automated API/DB UAT, not manual UI approval.
 const app = createApp();
+const gatesReturnKeys: string[] = [];
+const trackedGatesReturnKey = (): string => {
+  const key = 'borrow_' + randomUUID();
+  gatesReturnKeys.push(key);
+  return key;
+};
+
 const evidencePath = resolve(__dirname, '../test-results/phase11b-gates-evidence.json');
 const evidence = {
   kind: 'PHASE11B_AUTOMATED_API_DB_UAT',
@@ -77,21 +87,47 @@ describe('Phase 11B — isolated PostgreSQL UAT release gates', () => {
     categoryId = category.id;
     locationId = location.id;
     loginRateLimiter.reset();
+    // Test-only JWT fixtures: do not update existing seed users via login.
+    // authenticate middleware still checks live database identity and role.
     for (const [email, key] of [
       ['admin@acm.local', 'admin'],
       ['manager@acm.local', 'manager'],
       ['tech@acm.local', 'technician'],
       ['student@acm.local', 'student'],
     ] as const) {
-      const result = await request(app).post('/api/v1/auth/login')
-        .send({ email, password: 'ACM@dev2026!' });
-      expect(result.status).toBe(200);
-      if (key === 'admin') admin = result.body.data.token;
-      if (key === 'manager') manager = result.body.data.token;
-      if (key === 'technician') technician = result.body.data.token;
+      const user = await prisma.user.findUnique({
+        where: { email },
+        select: {
+          id: true,
+          email: true,
+          fullName: true,
+          role: true,
+          isActive: true,
+          isLocked: true,
+        },
+      });
+
+      if (!user || !user.isActive || user.isLocked) {
+        throw new Error('UAT seed user missing or inactive: ' + email);
+      }
+
+      const token = jwt.sign(
+        {
+          id: user.id,
+          email: user.email,
+          fullName: user.fullName,
+          role: user.role,
+        },
+        env.JWT_SECRET,
+        { expiresIn: env.JWT_EXPIRES_IN as any }
+      );
+
+      if (key === 'admin') admin = token;
+      if (key === 'manager') manager = token;
+      if (key === 'technician') technician = token;
       if (key === 'student') {
-        student = result.body.data.token;
-        borrowerId = result.body.data.user.id;
+        student = token;
+        borrowerId = user.id;
       }
     }
     const outsiderPass = 'Phase11BOutsider-2026!123';
@@ -120,6 +156,17 @@ describe('Phase 11B — isolated PostgreSQL UAT release gates', () => {
 
   afterAll(async () => {
     try {
+      // An invalid return normally rolls back its idempotency record.
+      // Delete ONLY any records created by this suite's return request key.
+      if (gatesReturnKeys.length > 0) {
+        await prisma.idempotencyRecord.deleteMany({
+          where: { key: { in: gatesReturnKeys } },
+        });
+        const leftovers = await prisma.idempotencyRecord.count({
+          where: { key: { in: gatesReturnKeys } },
+        });
+        if (leftovers !== 0) throw new Error('PHASE11B RETURN IDEMPOTENCY CLEANUP FAILED');
+      }
       // Never delete user or shared seed fixtures. Only remove IDs created here.
       for (const id of requestIds) {
         const relatedReturns = await prisma.returnTransaction.findMany({
@@ -252,7 +299,7 @@ describe('Phase 11B — isolated PostgreSQL UAT release gates', () => {
     const beforeB = await balance(item.id, secondLocationId);
     expect(beforeA).toMatchObject({ onHand: 0, borrowed: 1 });
     expect(beforeB).toMatchObject({ onHand: 0, borrowed: 1 });
-    const rejected = await request(app).post('/api/v1/borrow-requests/' + pending.id + '/return')
+    const rejected = await request(app).post('/api/v1/borrow-requests/' + pending.id + '/return').set('Idempotency-Key', trackedGatesReturnKey())
       .set('Authorization', 'Bearer ' + technician)
       .send({ items: [{ borrowDetailId: pending.details[0].id, returnedQuantity: 1,
         condition: AssetCondition.GOOD, locationId }] });

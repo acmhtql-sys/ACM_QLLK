@@ -1,5 +1,6 @@
 import crypto from 'crypto';
 import { Prisma } from '@prisma/client';
+import { idempotencyService } from '../inventory/idempotency.service';
 import { prisma } from '../../config/database';
 import { AppError } from '../../shared/AppError';
 import { AuthenticatedUser } from '../../middleware/auth';
@@ -754,7 +755,8 @@ export class BorrowService {
   async returnBorrowRequest(
     id: string,
     input: ReturnBorrowRequestInput,
-    currentUser: AuthenticatedUser
+    currentUser: AuthenticatedUser,
+    idempotencyKey?: string
   ): Promise<{ borrowRequest: BorrowRequestResponse; returnNumber: string }> {
     if (
       currentUser.role !== UserRole.ADMIN &&
@@ -767,7 +769,52 @@ export class BorrowService {
       );
     }
 
-    const result = await runBorrowTransaction(async (tx) => {
+    // Stage 1: optional header, to preserve compatibility with existing callers.
+    const endpoint = '/api/v1/borrow-requests/' + id + '/return';
+    const precheck = idempotencyKey
+      ? await idempotencyService.handlePrecheck(
+          idempotencyKey, currentUser.id, endpoint, input, prisma
+        )
+      : null;
+
+    if (precheck?.action === 'RETURN_CACHED') {
+      const cached = precheck.cachedResponse as
+        | { borrowRequest: BorrowRequestResponse; returnNumber: string }
+        | undefined;
+      if (!cached?.borrowRequest || !cached?.returnNumber) {
+        throw new AppError('Kết quả giao dịch hoàn trả đã lưu không hợp lệ', 409);
+      }
+      return cached;
+    }
+
+    let result: { borrowRequest: BorrowRequestResponse; returnNumber: string };
+    try {
+      result = await runBorrowTransaction(async (tx) => {
+        if (idempotencyKey && precheck) {
+          if (precheck.action === 'RETRY_PENDING' || precheck.action === 'RETRY_FAILED') {
+            await tx.idempotencyRecord.update({
+              where: { key: idempotencyKey },
+              data: {
+                status: 'PENDING',
+                requestHash: precheck.requestHash,
+                createdAt: new Date(),
+                expiresAt: idempotencyService.getExpirationDate(24),
+              },
+            });
+          } else {
+            await tx.idempotencyRecord.create({
+              data: {
+                key: idempotencyKey,
+                userId: currentUser.id,
+                endpoint,
+                requestHash: precheck.requestHash,
+                status: 'PENDING',
+                expiresAt: idempotencyService.getExpirationDate(24),
+              },
+            });
+          }
+        }
+
       const req = await tx.borrowRequest.findUnique({
         where: { id },
         include: {
@@ -1011,13 +1058,32 @@ export class BorrowService {
         },
       });
 
-      return { updatedReq, returnNumber };
-    });
+      const response = {
+        borrowRequest: formatBorrowRequestResponse(updatedReq),
+        returnNumber,
+      };
 
-    return {
-      borrowRequest: formatBorrowRequestResponse(result.updatedReq),
-      returnNumber: result.returnNumber,
-    };
+      // Key registration and business effects commit atomically.
+      if (idempotencyKey) {
+        await tx.idempotencyRecord.update({
+          where: { key: idempotencyKey },
+          data: {
+            status: 'COMPLETED',
+            responseBody: idempotencyService.sanitizeResponse(response),
+            statusCode: 200,
+          },
+        });
+      }
+      return response;
+    });
+    } catch (error: unknown) {
+      if (idempotencyKey && idempotencyService.isIdempotencyKeyConflict(error)) {
+        throw new AppError('Khóa hoàn trả đang được xử lý đồng thời. Vui lòng thử lại với cùng khóa', 409);
+      }
+      throw error;
+    }
+
+    return result;
   }
 
   /**

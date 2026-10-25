@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import request from 'supertest';
+import { randomUUID } from 'node:crypto';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { createApp } from '../src/app';
@@ -8,6 +9,13 @@ import { loginRateLimiter } from '../src/middleware/rateLimiter';
 import { AssetCondition, ItemType } from '@acm/shared';
 
 const app = createApp();
+const ledgerReturnKeys: string[] = [];
+const trackedLedgerReturnKey = (): string => {
+  const key = 'borrow_' + randomUUID();
+  ledgerReturnKeys.push(key);
+  return key;
+};
+
 const evidenceFile = resolve(__dirname, '../test-results/phase11-ledger-evidence.json');
 type Balance = { onHand: number; reserved: number; borrowed: number; quarantined: number; kitAllocated: number; available: number };
 const want = (onHand: number, reserved = 0, borrowed = 0, quarantined = 0): Balance => ({
@@ -79,6 +87,17 @@ describe('Phase 11 — isolated PostgreSQL API ledger acceptance rehearsal', () 
   afterAll(async () => {
     if (!itemId) return;
     try {
+      // Return idempotency records have no stockTransactionId FK. Remove only
+      // the three unique keys created by THIS test, before deleting its fixture.
+      if (ledgerReturnKeys.length > 0) {
+        await prisma.idempotencyRecord.deleteMany({
+          where: { key: { in: ledgerReturnKeys } },
+        });
+        const leftovers = await prisma.idempotencyRecord.count({
+          where: { key: { in: ledgerReturnKeys } },
+        });
+        if (leftovers !== 0) throw new Error('UAT11 RETURN IDEMPOTENCY CLEANUP FAILED');
+      }
       if (borrowId) {
         const returns = await prisma.returnTransaction.findMany({ where: { borrowRequestId: borrowId }, select: { id: true } });
         await prisma.returnDetail.deleteMany({ where: { returnTransactionId: { in: returns.map(r => r.id) } } });
@@ -157,7 +176,7 @@ describe('Phase 11 — isolated PostgreSQL API ledger acceptance rehearsal', () 
     await snapshot('UAT-04', 'handover 4', handed.status, want(6, 0, 4));
 
     const returnsBefore = await prisma.returnTransaction.count({ where: { borrowRequestId: borrowId } });
-    const cross = await request(app).post('/api/v1/borrow-requests/' + borrowId + '/return')
+    const cross = await request(app).post('/api/v1/borrow-requests/' + borrowId + '/return').set('Idempotency-Key', trackedLedgerReturnKey())
       .set('Authorization', 'Bearer ' + techToken)
       .send({ items: [{ borrowDetailId: detailId, returnedQuantity: 1, condition: AssetCondition.GOOD,
         locationId: '00000000-0000-4000-8000-000000000001' }] });
@@ -165,7 +184,7 @@ describe('Phase 11 — isolated PostgreSQL API ledger acceptance rehearsal', () 
     expect(await prisma.returnTransaction.count({ where: { borrowRequestId: borrowId } })).toBe(returnsBefore);
     await snapshot('UAT-11', 'cross-location rejected', cross.status, want(6, 0, 4));
 
-    const dupe = await request(app).post('/api/v1/borrow-requests/' + borrowId + '/return')
+    const dupe = await request(app).post('/api/v1/borrow-requests/' + borrowId + '/return').set('Idempotency-Key', trackedLedgerReturnKey())
       .set('Authorization', 'Bearer ' + techToken)
       .send({ items: [
         { borrowDetailId: detailId, returnedQuantity: 1, condition: AssetCondition.GOOD },
@@ -180,7 +199,7 @@ describe('Phase 11 — isolated PostgreSQL API ledger acceptance rehearsal', () 
       ['UAT-06', AssetCondition.DAMAGED, 1, want(9, 0, 1, 1), 'PARTIALLY_RETURNED'],
       ['UAT-07', AssetCondition.LOST, 1, want(9, 0, 0, 1), 'RETURNED'],
     ] as const) {
-      const res = await request(app).post('/api/v1/borrow-requests/' + borrowId + '/return')
+      const res = await request(app).post('/api/v1/borrow-requests/' + borrowId + '/return').set('Idempotency-Key', trackedLedgerReturnKey())
         .set('Authorization', 'Bearer ' + techToken)
         .send({ items: [{ borrowDetailId: detailId, returnedQuantity: quantity, condition, locationId }] });
       expect(res.status).toBe(200);
