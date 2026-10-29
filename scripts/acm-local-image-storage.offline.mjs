@@ -131,3 +131,8 @@ test('STO-21 only actor-owner can remove, metadata stays private', async () => i
   assert.equal(manifest.uploadedById,owner); assert.ok(!('claimedMime' in manifest));
   await bad(() => storage.remove(saved.id, stranger),'FORBIDDEN');
 }));
+test('STO-22 evidence deletion denied even for original uploader', async () => isolated(async storage => {
+  const saved = await storage.put(sample(png,{purpose:'RECEIPT_EVIDENCE'}));
+  await bad(() => storage.remove(saved.id,owner),'FORBIDDEN');
+  assert.deepEqual((await storage.get(saved.id,owner)).bytes,png);
+}));
