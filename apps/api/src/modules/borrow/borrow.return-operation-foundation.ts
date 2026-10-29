@@ -123,7 +123,8 @@ export function assertOperationSnapshotConsistent(op: ReturnOperationStatusSnaps
         typeof op.returnNumber !== 'string' || !op.returnNumber.trim()) {
       throw new AppError('Biên nhận operation thiếu hoặc không khớp', 409);
     }
-  } else if (hasResult || op.returnTransactionId !== null || op.completedAt !== null || hasCompletedAt) {
+  } else if (hasResult || op.returnTransactionId !== null || op.completedAt !== null || hasCompletedAt ||
+             (op.returnNumber !== null && op.returnNumber !== undefined)) {
     throw new AppError('Operation chưa hoàn tất nhưng có biên nhận bất thường', 409);
   }
   if (op.state === 'CANCELLED') {

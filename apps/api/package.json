@@ -10,7 +10,7 @@
     "lint": "tsc --noEmit",
     "start": "node dist/server.js",
     "test": "vitest run",
-    "test:unit": "vitest run -c vitest.mock.config.ts tests/audit-logs.sanitization.unit.test.ts tests/auth.security.unit.test.ts tests/borrow.return.unit.test.ts tests/dashboard.reports.unit.test.ts tests/idempotency.unit.test.ts tests/items.inventory.unit.test.ts tests/kits.inventory.unit.test.ts tests/schema.integrity.unit.test.ts tests/users.admin.unit.test.ts tests/adjustment.zero-delta.unit.test.ts",
+    "test:unit": "vitest run -c vitest.mock.config.ts tests/audit-logs.sanitization.unit.test.ts tests/auth.security.unit.test.ts tests/borrow.return.unit.test.ts tests/dashboard.reports.unit.test.ts tests/idempotency.unit.test.ts tests/items.inventory.unit.test.ts tests/kits.inventory.unit.test.ts tests/schema.integrity.unit.test.ts tests/users.admin.unit.test.ts tests/adjustment.zero-delta.unit.test.ts tests/borrow.return-operations.stage4c2a.unit.test.ts tests/borrow.return-operations.stage4c2b.schema-contract.unit.test.ts tests/borrow.return.validation.stage4c.unit.test.ts",
     "test:integration": "vitest run tests/e2e.phase8.complete.integration.test.ts",
     "prisma:generate": "prisma generate",
     "prisma:validate": "prisma validate",
@@ -19,7 +19,8 @@
     "prisma:migrate:test": "tsx scripts/migrateTestDb.ts",
     "prisma:seed:test": "tsx scripts/seedTestDb.ts",
     "test:uat:ledger": "vitest run tests/uat.phase11.ledger.integration.test.ts",
-    "test:uat:gates": "vitest run tests/uat.phase11b.gates.integration.test.ts"
+    "test:uat:gates": "vitest run tests/uat.phase11b.gates.integration.test.ts",
+    "test:sql-contract:review": "vitest run -c vitest.mock.config.ts tests/borrow.return-operations.stage4c2b.sql-contract.review.test.ts"
   },
   "dependencies": {
     "@acm/shared": "*",

@@ -74,6 +74,14 @@ describe('Phase 11D Stage 4C-2A — inert operation foundation', () => {
   it('OP-F11: PREPARED carrying a result must be blocked', () => {
     expect(() => assertOperationSnapshotConsistent({ ...op, returnTransactionId: resultId })).toThrow();
   });
+  it('OP-F11B: unresolved or cancelled state cannot carry an apparent return receipt', () => {
+    for (const state of ['PREPARED', 'RECONCILIATION_REQUIRED', 'CANCELLED']) {
+      const snapshot = state === 'CANCELLED'
+        ? { ...op, state, cancelledAt: '2026-10-24T04:00:00Z', cancelReason: 'No handover' }
+        : { ...op, state };
+      expect(() => assertOperationSnapshotConsistent({ ...snapshot, returnNumber: 'RT-SPURIOUS' })).toThrow();
+    }
+  });
   it('OP-F12: completed operation requires exact receipt fields', () => {
     const completed = { ...op, state: 'COMPLETED', returnTransactionId: resultId,
       completedAt: '2026-10-24T04:00:00Z', returnNumber: 'RT-20261024-001' };

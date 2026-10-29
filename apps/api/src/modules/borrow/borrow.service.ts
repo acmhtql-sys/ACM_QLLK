@@ -776,6 +776,12 @@ export class BorrowService {
       );
     }
 
+    // Validate BEFORE casting the ID inside the SERIALIZABLE row-lock query.
+    // An invalid UUID should return 422, not leak an unclassified PostgreSQL cast error.
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id)) {
+      throw new AppError('Mã phiếu mượn không hợp lệ', 422);
+    }
+
     // D7 REVIEW ONLY: keep optional key support at the service boundary.
     // The router currently requires the key for legacy POST /return.
     const endpoint = '/api/v1/borrow-requests/' + id + '/return';
