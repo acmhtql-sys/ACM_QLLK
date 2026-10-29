@@ -1,0 +1,34 @@
+name: Stage4C DBA proposal lint (no DB)
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - 'docs/stage4c-dba-schema-proposal-*'
+    paths:
+      - 'docs/stage4c-prisma-dba-design-*.md'
+      - 'docs/stage4c-ddl-constraints-review-only.sql.txt'
+      - 'scripts/stage4c-dba-design.offline.mjs'
+      - '.github/workflows/stage4c-dba-design-offline.yml'
+  pull_request:
+    paths:
+      - 'docs/stage4c-prisma-dba-design-*.md'
+      - 'docs/stage4c-ddl-constraints-review-only.sql.txt'
+      - 'scripts/stage4c-dba-design.offline.mjs'
+      - '.github/workflows/stage4c-dba-design-offline.yml'
+permissions:
+  contents: read
+jobs:
+  static-design:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+      - name: Assert review-only files
+        run: |
+          test -f docs/stage4c-prisma-dba-design-20261029.md
+          test -f docs/stage4c-ddl-constraints-review-only.sql.txt
+      - name: Review-only safety invariants (no DB, no install)
+        run: node --test scripts/stage4c-dba-design.offline.mjs
