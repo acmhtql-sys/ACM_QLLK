@@ -3,6 +3,16 @@
 **Status: DRAFT / REVIEW ONLY. Not a release approval.**  
 Dependencies: [#11 DB policy](https://github.com/acmhtql-sys/ACM_QLLK/issues/11), [#12 isolated PG signoffs](https://github.com/acmhtql-sys/ACM_QLLK/issues/12), [#13 isolated PG migration/concurrency](https://github.com/acmhtql-sys/ACM_QLLK/issues/13), [#14 return writer](https://github.com/acmhtql-sys/ACM_QLLK/issues/14), [#21 Supabase](https://github.com/acmhtql-sys/ACM_QLLK/issues/21), [#15 release](https://github.com/acmhtql-sys/ACM_QLLK/issues/15).
 
+## Update — 2026-10-29: 5/5 business rules approved, DBA still missing
+
+Project owner has now explicitly approved **BIZ-01…BIZ-05** in project chat. The authoritative business decisions and exact wording are at `docs/stage4c-owner-business-policy-proposal-20261029.md`; the historical decision questions below were written **before** approvals and should not be read as current business status. **Independent DBA signoff, exact DDL, isolated PG creation and SQL/migration authorization are still MISSING.**
+
+Prepared concrete next steps, without executing database writes:
+- Backend contract/test checklist: `docs/stage4c-backend-implementation-contract-20261029.md`.
+- Independent DBA handoff: `docs/stage4c-dba-independent-review-handoff-20261029.md`.
+
+Return-operation HTTP 503 and legacy gate remain unchanged. This docs-only update does not implement the writer or authorize flag enable/migration.
+
 ## Decision record (not approved)
 
 1. **Physical handover evidence code** — business owner to approve/reject proposed `^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$` (ASCII, 1–128 characters), document whether case-sensitive. The current Stage4C TS guard only checks 1–128, trims and rejects controls; DB 2B CHECK uses a broader pattern. Do not present them as already policy-consistent.
