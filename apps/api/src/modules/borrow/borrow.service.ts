@@ -1,6 +1,7 @@
 import crypto from 'crypto';
 import { Prisma } from '@prisma/client';
 import { idempotencyService } from '../inventory/idempotency.service';
+import { assertLegacyReturnWriteAllowed } from './borrow.return-operation-foundation';
 import { prisma } from '../../config/database';
 import { AppError } from '../../shared/AppError';
 import { AuthenticatedUser } from '../../middleware/auth';
@@ -212,7 +213,10 @@ async function runBorrowTransaction<T>(
     });
   } catch (error: unknown) {
     if (typeof error === 'object' && error !== null && 'code' in error &&
-        error.code === 'P2034') {
+        (error.code === 'P2034' ||
+         (error.code === 'P2010' && 'meta' in error &&
+          typeof error.meta === 'object' && error.meta !== null &&
+          'code' in error.meta && error.meta.code === '40001'))) {
       throw new AppError(
         'Giao dịch kho đang được cập nhật đồng thời. Vui lòng tải lại tồn kho và thử lại',
         409
@@ -758,6 +762,9 @@ export class BorrowService {
     currentUser: AuthenticatedUser,
     idempotencyKey?: string
   ): Promise<{ borrowRequest: BorrowRequestResponse; returnNumber: string }> {
+    // Stage 4C-2A: enforcement at service boundary, not just an HTTP route.
+    // If cutover is requested before operation-based commit is ready, fail closed.
+    assertLegacyReturnWriteAllowed();
     if (
       currentUser.role !== UserRole.ADMIN &&
       currentUser.role !== UserRole.LAB_MANAGER &&
@@ -769,50 +776,123 @@ export class BorrowService {
       );
     }
 
-    // Stage 1: optional header, to preserve compatibility with existing callers.
+    // D7 REVIEW ONLY: keep optional key support at the service boundary.
+    // The router currently requires the key for legacy POST /return.
     const endpoint = '/api/v1/borrow-requests/' + id + '/return';
-    const precheck = idempotencyKey
-      ? await idempotencyService.handlePrecheck(
-          idempotencyKey, currentUser.id, endpoint, input, prisma
-        )
-      : null;
-
-    if (precheck?.action === 'RETURN_CACHED') {
-      const cached = precheck.cachedResponse as
-        | { borrowRequest: BorrowRequestResponse; returnNumber: string }
-        | undefined;
-      if (!cached?.borrowRequest || !cached?.returnNumber) {
-        throw new AppError('Kết quả giao dịch hoàn trả đã lưu không hợp lệ', 409);
-      }
-      return cached;
-    }
 
     let result: { borrowRequest: BorrowRequestResponse; returnNumber: string };
     try {
       result = await runBorrowTransaction(async (tx) => {
-        if (idempotencyKey && precheck) {
-          if (precheck.action === 'RETRY_PENDING' || precheck.action === 'RETRY_FAILED') {
-            await tx.idempotencyRecord.update({
-              where: { key: idempotencyKey },
-              data: {
-                status: 'PENDING',
-                requestHash: precheck.requestHash,
-                createdAt: new Date(),
-                expiresAt: idempotencyService.getExpirationDate(24),
-              },
-            });
-          } else {
-            await tx.idempotencyRecord.create({
-              data: {
-                key: idempotencyKey,
-                userId: currentUser.id,
-                endpoint,
-                requestHash: precheck.requestHash,
-                status: 'PENDING',
-                expiresAt: idempotencyService.getExpirationDate(24),
-              },
-            });
+        // Lock-first proposal: protect this borrow before reading/writing an idempotency key.
+        // The transaction uses SERIALIZABLE; a concurrent snapshot failure returns 409.
+        // Review ALL other writers' lock ordering before adoption.
+        await tx.$queryRaw`SELECT id FROM public.borrow_requests WHERE id=${id}::uuid FOR UPDATE`;
+
+        if (idempotencyKey) {
+          const requestHash = idempotencyService.generateFingerprint(
+            currentUser.id, endpoint, input
+          );
+          const existing = await tx.idempotencyRecord.findUnique({
+            where: { key: idempotencyKey },
+          });
+          if (existing) {
+            idempotencyService.verifyRecordMatch(
+              existing, currentUser.id, endpoint, requestHash
+            );
+            if (existing.status === 'COMPLETED') {
+              const cachedValue: unknown = existing.responseBody;
+              if (
+                cachedValue === null ||
+                typeof cachedValue !== 'object' ||
+                Array.isArray(cachedValue) ||
+                !('borrowRequest' in cachedValue) ||
+                cachedValue.borrowRequest === null ||
+                typeof cachedValue.borrowRequest !== 'object' ||
+                Array.isArray(cachedValue.borrowRequest) ||
+                !('returnNumber' in cachedValue) ||
+                typeof cachedValue.returnNumber !== 'string' ||
+                cachedValue.returnNumber.trim().length === 0
+              ) {
+                throw new AppError('Kết quả giao dịch hoàn trả đã lưu không hợp lệ', 409);
+              }
+              const cached = cachedValue as
+                | { borrowRequest: BorrowRequestResponse; returnNumber: string }
+                | undefined;
+              if (!cached?.borrowRequest || !cached?.returnNumber) {
+                throw new AppError('Kết quả giao dịch hoàn trả đã lưu không hợp lệ', 409);
+              }
+                            const isObj = (v: unknown): v is Record<string, unknown> =>
+                v !== null && typeof v === 'object' && !Array.isArray(v);
+              const nonempty = (v: unknown): v is string => typeof v === 'string' && v.trim().length > 0;
+              const text = (v: unknown): v is string => typeof v === 'string';
+              const maybeText = (v: unknown): boolean => v === undefined || v === null || text(v);
+              const isDate = (v: unknown): boolean => nonempty(v) && Number.isFinite(Date.parse(v));
+              const maybeDate = (v: unknown): boolean => v === undefined || v === null || isDate(v);
+              const nat = (v: unknown): v is number => typeof v === 'number' && Number.isSafeInteger(v) && v >= 0;
+              const positive = (v: unknown): boolean => nat(v) && v > 0;
+              const isPerson = (v: unknown): boolean => isObj(v) && nonempty(v.id) && nonempty(v.fullName) && text(v.email);
+              const isItem = (v: unknown): boolean => isObj(v) && nonempty(v.id) && nonempty(v.code) && nonempty(v.name) && nonempty(v.unit);
+              const maybeItem = (v: unknown): boolean => v === undefined || isItem(v);
+              const isDetail = (v: unknown, parentId: string): boolean =>
+                isObj(v) && nonempty(v.id) && v.borrowRequestId === parentId && nonempty(v.itemId) &&
+                maybeItem(v.item) && maybeText(v.assetId) && positive(v.quantity) && nat(v.returnedQuantity) &&
+                (v.returnedQuantity as number) <= (v.quantity as number) && maybeText(v.notes) &&
+                isDate(v.createdAt) && isDate(v.updatedAt);
+              const isReservation = (v: unknown, parentId: string): boolean =>
+                isObj(v) && nonempty(v.id) && v.borrowRequestId === parentId && nonempty(v.itemId) &&
+                maybeItem(v.item) && nonempty(v.locationId) &&
+                (v.location === undefined || (isObj(v.location) && nonempty(v.location.id) &&
+                  nonempty(v.location.code) && nonempty(v.location.name))) &&
+                positive(v.quantity) && ['ACTIVE','FULFILLED','RELEASED'].includes(v.status as string) &&
+                maybeDate(v.expiresAt) && isDate(v.createdAt);
+              const isReturnDetail = (v: unknown, txId: string): boolean =>
+                isObj(v) && nonempty(v.id) && v.returnTransactionId === txId && nonempty(v.itemId) &&
+                maybeItem(v.item) && maybeText(v.assetId) && positive(v.quantity) &&
+                ['GOOD','DAMAGED','LOST'].includes(v.condition as string) && maybeText(v.notes) && isDate(v.createdAt);
+              const isReturnTx = (v: unknown, parentId: string): boolean =>
+                isObj(v) && nonempty(v.id) && nonempty(v.returnNumber) && v.borrowRequestId === parentId &&
+                nonempty(v.receiverId) && (v.receiver === undefined || isPerson(v.receiver)) &&
+                maybeText(v.notes) && Array.isArray(v.details) &&
+                v.details.every((line: unknown) => isReturnDetail(line,v.id as string)) &&
+                isDate(v.createdAt) && isDate(v.updatedAt);
+              const br: unknown = cached.borrowRequest;
+              if (!isObj(br) || br.id !== id || !nonempty(br.id) || !nonempty(br.requestNumber) ||
+                  !nonempty(br.borrowerId) || (br.borrower !== undefined && !isPerson(br.borrower)) ||
+                  (br.approver !== undefined && br.approver !== null && !isPerson(br.approver)) ||
+                  !maybeText(br.borrowerName) || !maybeText(br.borrowerEmail) ||
+                  !maybeText(br.approverId) || !maybeText(br.approverName) ||
+                  !['HANDED_OVER','PARTIALLY_RETURNED','RETURNED'].includes(br.status as string) ||
+                  !text(br.purpose) || !isDate(br.expectedBorrowDate) || !isDate(br.expectedReturnDate) ||
+                  !maybeDate(br.actualBorrowDate) || !maybeDate(br.actualReturnDate) ||
+                  !maybeText(br.rejectionReason) || !maybeText(br.notes) ||
+                  !nat(br.itemCount) || !Array.isArray(br.details) || br.details.length !== br.itemCount ||
+                  !br.details.every((d: unknown) => isDetail(d,id)) ||
+                  (br.reservations !== undefined && (!Array.isArray(br.reservations) ||
+                    !br.reservations.every((r: unknown) => isReservation(r,id)))) ||
+                  (br.returnTransactions !== undefined && (!Array.isArray(br.returnTransactions) ||
+                    !br.returnTransactions.every((t: unknown) => isReturnTx(t,id)))) ||
+                  typeof br.isOverdue !== 'boolean' || !isDate(br.createdAt) || !isDate(br.updatedAt)) {
+                throw new AppError('Kết quả giao dịch hoàn trả đã lưu không hợp lệ', 409);
+              }
+              return cached;
+            }
+            // No automatic retry of PENDING/FAILED/unknown state on this candidate.
+            // These may need physical receipt reconciliation before a new write.
+            throw new AppError(
+              'Khóa hoàn trả đã tồn tại nhưng chưa có kết quả hoàn tất đáng tin cậy. Cần đối soát trước khi xử lý tiếp',
+              409
+            );
           }
+          await tx.idempotencyRecord.create({
+            data: {
+              key: idempotencyKey,
+              userId: currentUser.id,
+              endpoint,
+              requestHash,
+              status: 'PENDING',
+              expiresAt: idempotencyService.getExpirationDate(24),
+            },
+          });
         }
 
       const req = await tx.borrowRequest.findUnique({

@@ -124,6 +124,9 @@ model User {
   borrowRequestsApproved  BorrowRequest[]         @relation("ApproverRelation")
   stockTransactionsMade   StockTransaction[]      @relation("CreatedByRelation")
   returnsReceived         ReturnTransaction[]     @relation("ReceiverRelation")
+  returnOperationsCreated   BorrowReturnOperation[] @relation("ReturnOperationCreator")
+  returnOperationsCommitted BorrowReturnOperation[] @relation("ReturnOperationCommitter")
+  returnOperationsCancelled BorrowReturnOperation[] @relation("ReturnOperationCanceller")
   stockMovementsMade      StockMovement[]         @relation("UserMovementRelation")
   kitsCreated             Kit[]                   @relation("UserKitCreatedRelation")
   auditLogs               AuditLog[]
@@ -361,6 +364,7 @@ model BorrowRequest {
   details            BorrowDetail[]
   reservations       StockReservation[]
   returnTransactions ReturnTransaction[]
+  returnOperations   BorrowReturnOperation[] @relation("BorrowReturnOperationBorrow")
   createdAt          DateTime           @default(now())
   updatedAt          DateTime           @updatedAt
 
@@ -400,12 +404,14 @@ model ReturnTransaction {
   receiver        User           @relation("ReceiverRelation", fields: [receiverId], references: [id])
   notes           String?
   details         ReturnDetail[]
+  returnOperation BorrowReturnOperation? @relation("ReturnOperationResult")
   createdAt       DateTime       @default(now())
   updatedAt       DateTime       @updatedAt
 
   @@index([borrowRequestId])
   @@index([receiverId])
   @@index([createdAt])
+  @@unique([id, borrowRequestId], map: "return_transactions_id_borrowRequestId_key")
   @@map("return_transactions")
 }
 
@@ -467,6 +473,39 @@ model IdempotencyRecord {
   @@index([expiresAt])
   @@map("idempotency_records")
 }
+
+// Stage 4C-2: server-persisted business intent. Schema-only; NOT migrated.
+// Additional partial unique index and CHECK constraints require reviewed SQL migration.
+// Evidence is structurally required at prepare. Independent issuer policy is NOT yet approved.
+model BorrowReturnOperation {
+  id                  String             @id @default(uuid()) @db.Uuid
+  borrowRequestId     String             @map("borrow_request_id") @db.Uuid
+  borrowRequest       BorrowRequest      @relation("BorrowReturnOperationBorrow", fields: [borrowRequestId], references: [id], onDelete: Restrict)
+  createdById         String             @map("created_by_id") @db.Uuid
+  createdBy           User               @relation("ReturnOperationCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  state               String             @default("PREPARED")
+  payload             Json
+  requestHash         String             @map("request_hash")
+  physicalEvidenceRef String             @map("physical_evidence_ref")
+  returnTransactionId String?            @unique @map("return_transaction_id") @db.Uuid
+  returnTransaction   ReturnTransaction? @relation("ReturnOperationResult", fields: [returnTransactionId, borrowRequestId], references: [id, borrowRequestId], onDelete: Restrict)
+  committedById       String?            @map("committed_by_id") @db.Uuid
+  committedBy         User?              @relation("ReturnOperationCommitter", fields: [committedById], references: [id], onDelete: Restrict)
+  completedAt         DateTime?          @map("completed_at")
+  cancelledById       String?            @map("cancelled_by_id") @db.Uuid
+  cancelledBy         User?              @relation("ReturnOperationCanceller", fields: [cancelledById], references: [id], onDelete: Restrict)
+  cancelledAt         DateTime?          @map("cancelled_at")
+  cancelReason        String?            @map("cancel_reason")
+  createdAt           DateTime           @default(now()) @map("created_at")
+  updatedAt           DateTime           @updatedAt @map("updated_at")
+
+  @@index([borrowRequestId, createdAt])
+  @@index([createdById])
+  @@unique([borrowRequestId, physicalEvidenceRef])
+  @@unique([returnTransactionId, borrowRequestId], map: "borrow_return_operations_return_transaction_borrow_key")
+  @@map("borrow_return_operations")
+}
+
 
 model Kit {
   id          String     @id @default(uuid()) @db.Uuid

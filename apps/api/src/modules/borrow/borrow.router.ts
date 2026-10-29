@@ -15,6 +15,7 @@ import {
 } from '@acm/shared';
 import { borrowService } from './borrow.service';
 import { getBorrowReturnStatus } from './borrow.return-status';
+import { rejectUnreleasedReturnOperations } from './borrow.return-operation-foundation';
 import { requireIdempotencyKey, IdempotencyRequest } from '../../middleware/idempotency';
 
 export const borrowRouter = Router();
@@ -199,6 +200,25 @@ borrowRouter.get(
       return sendSuccess(res, status, 'Trạng thái đối soát hoàn trả');
     } catch (err) {
       next(err);
+    }
+  }
+);
+
+/**
+ * Stage 4C-2A: ALL operation endpoints are hard-disabled until the DB schema,
+ * shared transactional writer and legacy cutover are verified together.
+ * Authentication and RBAC are checked first; this route NEVER accesses a DB.
+ * GET/POST prepare, list, detail, commit and cancel intentionally return 503.
+ */
+borrowRouter.use(
+  '/:id/return-operations',
+  authenticate,
+  authorizeRoles(UserRole.ADMIN, UserRole.LAB_MANAGER, UserRole.TECHNICIAN),
+  (_req: Request, _res: Response, next: NextFunction) => {
+    try {
+      rejectUnreleasedReturnOperations();
+    } catch (error) {
+      next(error);
     }
   }
 );
