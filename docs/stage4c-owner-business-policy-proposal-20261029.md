@@ -1,50 +1,48 @@
-# ACM — Đề xuất chính sách nghiệp vụ Stage4C để chủ dự án quyết định
+# ACM — Đăng ký quyết định nghiệp vụ Stage4C
 
-**Trạng thái: BIZ-01 OWNER APPROVED; BIZ-02…05 DRAFT / AWAITING OWNER DECISIONS. KHÔNG PHẢI PHÊ DUYỆT SQL/MIGRATION/RELEASE.**  
-Lập ngày: 2026-10-29. Dựa trên 9 tệp UAT Stage4C đã đối chiếu SHA-256 và hồ sơ `docs/stage4c-business-dba-signoff-draft-20261029.md`.  
-**Tư cách người quyết định nghiệp vụ:** Trong hội thoại ngày 2026-10-29, người dùng tự xác nhận là chủ dự án và có quyền quyết định quy tắc nghiệp vụ của ACM. Chủ dự án đã **phê duyệt riêng BIZ-01** qua hội thoại ngày 2026-10-29; **BIZ-02…05 chưa được phê duyệt**, không thay thế reviewer kỹ thuật độc lập, không cấp quyền chạy SQL.
+**Trạng thái 2026-10-29:** BIZ-01 và BIZ-02 **OWNER APPROVED — BUSINESS ONLY**; BIZ-03…05 **AWAITING OWNER DECISION**. Không phải phê duyệt DBA, migration, ghi Supabase hoặc release GO.
 
-## Quyết định đã ghi nhận và các quy tắc còn chờ trả lời
+Nguồn mã kiểm tra: UAT Stage4C 9-file ZIP SHA-256 `938479d53afa7f16b2923bbf9611b4480957c19ce24d835b84d19c59d5fc332a`. Hồ sơ DBA: `docs/stage4c-business-dba-signoff-draft-20261029.md`.
 
-| ID | Quy tắc đề xuất | Điều còn cần chủ dự án quyết định rõ |
-|---|---|---|
-| BIZ-01 — Mã chứng từ | **OWNER APPROVED 2026-10-29:** mã chứng từ ASCII dài 1–128 ký tự, khớp regex `^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}# ACM — Đề xuất chính sách nghiệp vụ Stage4C để chủ dự án quyết định
+## BIZ-01 — Đã phê duyệt
 
-**Trạng thái: BIZ-01 OWNER APPROVED; BIZ-02…05 DRAFT / AWAITING OWNER DECISIONS. KHÔNG PHẢI PHÊ DUYỆT SQL/MIGRATION/RELEASE.**  
-Lập ngày: 2026-10-29. Dựa trên 9 tệp UAT Stage4C đã đối chiếu SHA-256 và hồ sơ `docs/stage4c-business-dba-signoff-draft-20261029.md`.  
-**Tư cách người quyết định nghiệp vụ:** Trong hội thoại ngày 2026-10-29, người dùng tự xác nhận là chủ dự án và có quyền quyết định quy tắc nghiệp vụ của ACM. Chủ dự án đã **phê duyệt riêng BIZ-01** qua hội thoại ngày 2026-10-29; **BIZ-02…05 chưa được phê duyệt**, không thay thế reviewer kỹ thuật độc lập, không cấp quyền chạy SQL.
+**Owner nói trực tiếp ngày 2026-10-29:** “Tôi phê duyệt BIZ-01: mã chứng từ ASCII 1–128 ký tự theo regex đã đề xuất, không phân biệt chữ hoa/thường.”
 
-## Quyết định đã ghi nhận và các quy tắc còn chờ trả lời
+- Regex: `^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$`.
+- Case-insensitive: `ACM-001` và `acm-001` được xem là cùng mã.
+- Chưa chốt triển khai: canonicalization và lưu mã gốc, phạm vi uniqueness, PostgreSQL collation/index, collision của dữ liệu cũ. Reviewer kỹ thuật phải bảo đảm cùng quy tắc ở API/Prisma/PostgreSQL.
+- Kết quả: **APPROVED_BY_PROJECT_OWNER — BUSINESS ONLY**.
 
-| ID | Quy tắc đề xuất | Điều còn cần chủ dự án quyết định rõ |
-|---|---|---|
-, **không phân biệt chữ hoa/chữ thường**. Ví dụ `ACM-001` và `acm-001` cùng mã khi so sánh. | DBA/code review phải chốt chuẩn hóa, phạm vi unique và cách kiểm tra/index case-insensitive; chưa triển khai DB/DDL. Không được diễn giải việc này là BIZ-02 hoặc schema approval. |
-| BIZ-02 — Nguồn chứng từ | Mã do nguồn nghiệp vụ được chỉ định cấp và xác minh bằng biên bản/hệ thống có truy vết; người nhập chuỗi không được coi là bằng chứng tự động; lưu issuer, verifier, actor, time, provenance khi chính sách cho phép | Ai có quyền phát hành và xác minh độc lập? Có dùng chứng từ bên ngoài hay mã từ hệ thống ACM? |
-| BIZ-03 — Điều kiện thiết bị | GOOD: chỉ chuyển sang khả dụng sau khi được nhận và kiểm tra; DAMAGED: chuyển cách ly để xử lý, không tăng số khả dụng; LOST: không hoàn nhập tồn khả dụng, lập chứng từ/tình trạng mất. Mọi thay đổi vật tư/Asset phải nhất quán với định nghĩa tồn kho đã phê duyệt | Có yêu cầu phê duyệt riêng cho DAMAGED/LOST? Khi nào thiết bị GOOD được cộng vào số khả dụng? |
-| BIZ-04 — Quyền và tách trách nhiệm | PREPARE cho nhân sự nghiệp vụ được cấp quyền; COMMIT chỉ cho người có quyền nhận/xác minh; CANCEL chỉ khi chưa COMMIT và có lý do/audit; mọi quyết định ghi actor + timestamp. Không tự động cho phép người tạo PREPARE tự COMMIT nếu cần bằng chứng độc lập | Chọn vai trò ADMIN/LAB_MANAGER/TECHNICIAN và có bắt buộc người PREPARE khác người COMMIT? |
-| BIZ-05 — Quy tắc hoàn trả | Cho phép trả một phần; cấm vượt số lượng còn mượn; COMMIT chỉ ghi một lần; retry cùng idempotency key và cùng nội dung trả lại kết quả cũ; cùng key khác nội dung = conflict; mỗi phiếu mượn tối đa một operation chưa kết thúc; hủy PREPARE không ghi biến động tồn; COMMIT lưu biên nhận/audit/stock/asset nguyên tử | Xác nhận phạm vi khóa idempotency (actor/borrow/request) và thời hạn lưu dữ liệu chống replay |
+## BIZ-02 — Đã phê duyệt phương án A
 
-## Bằng chứng quyết định BIZ-01 (nghiệp vụ, không phải kỹ thuật)
+**Owner nói trực tiếp ngày 2026-10-29:** “Tôi chọn và phê duyệt phương án A cho BIZ-02: ACM phát hành mã chứng từ điện tử, nhân viên tiếp nhận xác nhận bàn giao thực tế, và người khác có thẩm quyền kiểm chứng độc lập trước COMMIT.”
 
-- **Ngày theo múi giờ dự án:** 2026-10-29, Asia/Ho_Chi_Minh.
-- **Nguồn:** lời phê duyệt trực tiếp của người dùng trong hội thoại dự án sau khi tự xác nhận là chủ dự án và có thẩm quyền quyết định quy tắc nghiệp vụ.
-- **Nội dung nguyên ý:** “Tôi phê duyệt BIZ-01: mã chứng từ ASCII 1–128 ký tự theo regex đã đề xuất, không phân biệt chữ hoa/thường.”
-- **Kết quả:** `BIZ-01 = APPROVED_BY_PROJECT_OWNER (business policy)`.
-- **Phạm vi chưa chốt:** nguồn cấp và xác minh chứng từ (BIZ-02), phạm vi unique giữa tổ chức/kho/phiếu, cách giữ bản gốc/chuẩn hóa mã trong DB, xử lý collision khi dữ liệu cũ khác chữ hoa/thường; đây là các vấn đề triển khai phải được review.
-- **Không phải:** phê duyệt DBA, xác nhận danh tính bên ngoài hội thoại, ủy quyền migration/SQL hay release GO.
+- Hệ thống **ACM cấp mã chứng từ điện tử** theo BIZ-01. Mã được tạo ra **không đồng nghĩa** chứng minh thiết bị đã bàn giao.
+- **Nhân viên tiếp nhận xác nhận nhận thiết bị thực tế** bằng thao tác có ghi chứng cứ, người thực hiện và thời điểm.
+- **Một người khác, có thẩm quyền, xác minh độc lập** chứng từ và xác nhận tiếp nhận **trước COMMIT**; không cho người tiếp nhận tự làm người xác minh của cùng lần bàn giao.
+- Các yêu cầu triển khai *suy ra cần review*: lưu mã, nguồn do ACM cấp, phiếu mượn liên quan, danh tính/role của hai người, dấu thời gian, chứng cứ và nhật ký audit; authorization phải kiểm tra từ server, không tin cờ xác nhận do frontend tự gửi.
+- Vai trò cụ thể ADMIN / LAB_MANAGER / TECHNICIAN và quy tắc COMMIT/CANCEL sẽ chốt ở **BIZ-04**, chưa mặc định phê duyệt.
+- Kết quả: **APPROVED_BY_PROJECT_OWNER — BUSINESS ONLY**.
 
-## Tiêu chí nghiệm thu trước khi thay đổi Database
+## BIZ-03 — Chờ quyết định riêng: thiết bị GOOD / DAMAGED / LOST
 
-1. Đã nhận **APPROVE BIZ-01** qua hội thoại; chủ dự án còn phải trả lời rõ **APPROVE / REVISE / REJECT** đối với BIZ-02…05 và các lựa chọn chưa quyết định. Không suy diễn từ BIZ-01 sang các mục khác.
-2. Lưu nguồn quyết định có thể kiểm chứng trong hệ thống quản lý dự án (vai trò, ngày giờ, tham chiếu), tránh tên cá nhân/secret không cần thiết.
-3. Người rà soát PostgreSQL/Prisma **độc lập, là người thật** review DBA-01…07 trong `docs/stage4c-business-dba-signoff-draft-20261029.md`; câu trả lời của AI **không thay thế** signoff.
-4. Sau khi nghiệp vụ/DDL được duyệt, chỉ tiến hành chuẩn bị & test offline trên nhánh riêng. Việc tạo PostgreSQL cô lập cần 2 phê duyệt độc lập riêng (#12), việc chạy migration/SQL cần quyền riêng (#13). Supabase staging/production theo #21/#15.
+**Đề xuất A — Kiểm tra trước, hoàn nhập ngay:** Thiết bị GOOD chỉ vào kho khả dụng sau khi nhân viên nhận đánh giá tốt và quy trình BIZ-02 được xác minh; DAMAGED chuyển cách ly, không đưa vào khả dụng; LOST lập biên bản thất lạc, không tính là nhận vật lý, không hoàn tồn khả dụng.
 
-## Trong khi chờ phê duyệt
+**Đề xuất B — Cách ly trước, kiểm tra sau:** Mọi thiết bị đã nhận, kể cả GOOD, ban đầu ở trạng thái chờ kiểm tra/cách ly. Chỉ sau khi người được phân quyền duyệt kiểm tra chất lượng thì GOOD mới vào khả dụng; DAMAGED tiếp tục cách ly, LOST chỉ lập biên bản sự cố và không hoàn tồn khả dụng.
 
-Được phép: viết code giao diện/adapter fail-closed, unit tests mock/offline, review security/Prisma diff **không thực thi SQL**.  
-Không được phép: bật `ACM_RETURN_OPERATIONS_ENABLED=true`, mở route 503, sửa UAT trực tiếp, chạy SQL/migration, chuyển dữ liệu thật, merge release PR, deploy/cutover.
+Cần chủ dự án quyết định cách xử lý GOOD, vai trò kiểm tra chất lượng, xử lý hỏng/mất/chi phí; DBA phải đối chiếu ý nghĩa `onHand`, `quarantined`, `borrowed` và trạng thái Asset trước khi thiết kế cập nhật tồn kho. Không tự suy đoán số học stock.
 
-**Mẫu phản hồi ngắn từ chủ dự án (chỉ là định hướng; chưa phải signoff được xác minh):**  
-`BIZ-01 ...; BIZ-02 ...; BIZ-03 ...; BIZ-04 ...; BIZ-05 ...`.  
-Nếu quyết định nhiều mục cùng lúc, yêu cầu mọi điều kiện lựa chọn phải được ghi rõ, không để ngầm định.
+## BIZ-04 — Chờ quyết định
+
+Ai được PREPARE, CONFIRM_RECEIPT, VERIFY, COMMIT, CANCEL; ma trận role và separation of duties phải thống nhất BIZ-02. Cần lưu actor/timestamp/audit. Chưa phê duyệt.
+
+## BIZ-05 — Chờ quyết định
+
+Trả một phần, chống over-return, chỉ COMMIT một lần, idempotency replay/conflict, không double-post receipt/stock/asset/audit, cancel trước commit không làm biến động tồn. Cần chốt phạm vi và thời gian giữ idempotency key. Chưa phê duyệt.
+
+## Giới hạn phê duyệt và cổng tiếp theo
+
+- BIZ-01, BIZ-02 được chủ dự án phê duyệt qua hội thoại, **không phải quyết định DBA** hoặc phê duyệt thực thi SQL; chưa kiểm tra danh tính bằng kênh xác thực độc lập ngoài hội thoại.
+- BIZ-03…05 cần phê duyệt tường minh, không dựa vào câu “đồng ý” chung.
+- Người rà soát PostgreSQL/Prisma độc lập phải ký thiết kế theo issue #11. Phê duyệt tạo cluster #12, chạy migration/test DB #13, Supabase staging #21 và release #15 là các cổng riêng.
+- Tiếp tục chỉ tài liệu và kiểm thử offline. Không bật `ACM_RETURN_OPERATIONS_ENABLED=true`, không mở endpoint 503, không chạy SQL/migration, không chỉnh UAT hoặc merge/deploy.
