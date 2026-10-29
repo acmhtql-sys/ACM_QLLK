@@ -1,0 +1,40 @@
+name: ACM Phase11 mock browser roles (NO database)
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - fix/phase11-playwright-strict-locator-20261029
+    paths:
+      - apps/web/playwright/phase11.roles.spec.ts
+      - .github/workflows/acm-phase11-roles-mock-browser.yml
+  pull_request:
+    paths:
+      - apps/web/playwright/phase11.roles.spec.ts
+      - .github/workflows/acm-phase11-roles-mock-browser.yml
+
+permissions:
+  contents: read
+
+jobs:
+  browser-roles-mock:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      CI: 'true'
+      ACM_UI_LIVE: 'false'
+      VITE_API_BASE_URL: http://127.0.0.1:1/api/v1
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+      - name: Install locked workspace dependencies without lifecycle scripts
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Compile shared package
+        run: npm run build:shared
+      - name: Build Frontend against unreachable dummy API
+        run: npm run build:web
+      - name: Install Chromium for browser-only E2E
+        run: npx playwright install --with-deps chromium
+      - name: Run only 19 intercepted API role UI scenarios (never fullstack)
+        run: npm run test:e2e:mock --workspace=@acm/web -- playwright/phase11.roles.spec.ts --workers=1 --reporter=line
