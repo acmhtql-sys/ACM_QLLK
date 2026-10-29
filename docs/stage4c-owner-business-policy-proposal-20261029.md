@@ -1,6 +1,6 @@
 # ACM — Đăng ký quyết định nghiệp vụ Stage4C
 
-**Trạng thái 2026-10-29:** BIZ-01, BIZ-02, BIZ-03 và BIZ-04 **OWNER APPROVED — BUSINESS ONLY**; BIZ-05 **AWAITING OWNER DECISION**. Không phải phê duyệt DBA, migration, ghi Supabase hoặc release GO.
+**Trạng thái 2026-10-29:** **BIZ-01…BIZ-05: 5/5 OWNER APPROVED — BUSINESS ONLY.** DBA/DDL, triển khai Backend, migration và release vẫn **NO-GO**. Không phải phê duyệt DBA, migration, ghi Supabase hoặc release GO.
 
 Nguồn mã kiểm tra: UAT Stage4C 9-file ZIP SHA-256 `938479d53afa7f16b2923bbf9611b4480957c19ce24d835b84d19c59d5fc332a`. Hồ sơ DBA: `docs/stage4c-business-dba-signoff-draft-20261029.md`.
 
@@ -56,13 +56,23 @@ Nguồn mã kiểm tra: UAT Stage4C 9-file ZIP SHA-256 `938479d53afa7f16b2923bbf
 - **Chưa chốt về kỹ thuật:** cách triển khai workflow và giới hạn concurrency, khóa/quyền cấp ở Backend, Prisma/DDL, migration, HTTP contract. Chưa chạy DB hoặc mở endpoint 503.
 - **Kết quả:** **APPROVED_BY_PROJECT_OWNER — BUSINESS ONLY**.
 
-## BIZ-05 — Chờ quyết định
+## BIZ-05 — Đã phê duyệt phương án A: Trả một phần và chống ghi trùng
 
-Trả một phần, chống over-return, chỉ COMMIT một lần, idempotency replay/conflict, không double-post receipt/stock/asset/audit, cancel trước commit không làm biến động tồn. Cần chốt phạm vi và thời gian giữ idempotency key. Chưa phê duyệt.
+**Quyết định chủ dự án, 2026-10-29:** “Tôi phê duyệt BIZ-05 phương án A: cho phép trả một phần nhiều lần, tối đa một return operation chưa kết thúc cho mỗi phiếu mượn; cấm trả vượt, chống double COMMIT, idempotency theo phiếu mượn và khóa yêu cầu, từ chối khác nội dung hoặc người không hợp lệ, giữ khóa tối thiểu 365 ngày, bảo vệ chứng từ COMMIT lâu dài, CANCEL trước COMMIT không ghi tồn và COMMIT nguyên tử.”
+
+- **Partial return:** được trả nhiều đợt nối tiếp; không được trả vượt số lượng chưa hoàn trả của mỗi dòng.
+- **Single pending operation:** tối đa một return operation chưa kết thúc trên mỗi phiếu mượn tại một thời điểm, kể cả khi nhiều người gửi PREPARE đồng thời.
+- **Idempotency:** phạm vi logic = `borrowRequestId` + `idempotencyKey`; sau khi kiểm tra danh tính và quyền actor trên server, cùng khóa + canonical payload giống nhau → trả lại kết quả đã lưu, **không ghi thêm**; khác payload hoặc actor không hợp lệ → từ chối, không tạo tác dụng phụ.
+- **Lưu giữ:** thông tin chống replay tối thiểu **365 ngày**; bảo đảm tính duy nhất, bất biến và khả năng truy nguyên của chứng từ COMMIT **lâu dài**. Sau khi khóa hết hạn vẫn không được double-post một giao dịch đã COMMIT. Phạm vi retention, canonicalization và định danh actor trong schema cần reviewer xác nhận.
+- **Atomic COMMIT:** biên nhận, chi tiết, stock/quarantine movement, serial/Asset, audit và terminal operation phải commit hoặc rollback **cùng một transaction**. Không được chuyển tồn một phần khi một bước khác thất bại.
+- **CANCEL:** chỉ trước COMMIT, chỉ người có quyền theo BIZ-04, bắt buộc lý do và audit; **không làm biến động tồn**.
+- **BIZ-02, BIZ-03, BIZ-04:** RECEIVE thực tế và VERIFY độc lập bởi hai người khác nhau; hàng thực nhận cách ly chờ QC; LOST lập biên bản riêng; chỉ ADMIN/LAB_MANAGER COMMIT. Không mở endpoint khi chưa hoàn tất kiểm chứng.
+- **DBA/Backend phải review:** ràng buộc duy nhất cho scope idempotency và operation terminal, unresolved partial unique index, lock order legacy/new, xung đột Serializable, retry bounded, dữ liệu hash và actor, retention/durable receipt, invariant tồn kho. Quyết định nghiệp vụ này không phải phê duyệt SQL/DDL.
+- **Trạng thái:** **APPROVED_BY_PROJECT_OWNER — BUSINESS ONLY**.
 
 ## Giới hạn phê duyệt và cổng tiếp theo
 
-- BIZ-01, BIZ-02, BIZ-03, BIZ-04 được chủ dự án phê duyệt qua hội thoại, **không phải quyết định DBA** hoặc phê duyệt thực thi SQL; chưa kiểm tra danh tính bằng kênh xác thực độc lập ngoài hội thoại.
-- BIZ-05 cần phê duyệt tường minh, không dựa vào câu “đồng ý” chung.
+- BIZ-01, BIZ-02, BIZ-03, BIZ-04, BIZ-05 được chủ dự án phê duyệt qua hội thoại, **không phải quyết định DBA** hoặc phê duyệt thực thi SQL; chưa kiểm tra danh tính bằng kênh xác thực độc lập ngoài hội thoại.
+- **Đã chốt 5/5 quy tắc nghiệp vụ trong hội thoại.** Các chi tiết thiết kế còn tồn đọng cần review độc lập, không được coi là DBA signoff hay quyền chạy SQL.
 - Người rà soát PostgreSQL/Prisma độc lập phải ký thiết kế theo issue #11. Phê duyệt tạo cluster #12, chạy migration/test DB #13, Supabase staging #21 và release #15 là các cổng riêng.
 - Tiếp tục chỉ tài liệu và kiểm thử offline. Không bật `ACM_RETURN_OPERATIONS_ENABLED=true`, không mở endpoint 503, không chạy SQL/migration, không chỉnh UAT hoặc merge/deploy.
