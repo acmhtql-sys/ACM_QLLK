@@ -64,6 +64,12 @@ jobs:
       - name: Compile production React bundle with unreachable API endpoint
         run: npm run build:web
 
+      - name: Unit-test browser secret scanner with 13 synthetic cases
+        run: node --test scripts/d8-sb-p1-web-bundle-secret-guard.test.cjs
+
+      - name: Scan actual production web bundle for database credentials and keys
+        run: node scripts/d8-sb-p1-web-bundle-secret-guard.cjs
+
       - name: Install Chromium for fixture-only browser smoke
         working-directory: apps/web
         run: npx playwright install --with-deps chromium
