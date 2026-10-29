@@ -1,0 +1,35 @@
+name: Stage4C DBA target contract (OFFLINE DESIGN ONLY)
+on:
+  push:
+    branches:
+      - review/stage4c-dba-constraint-contract-20261030
+    paths:
+      - docs/stage4c-dba-target-contract.review.json
+      - docs/stage4c-dba-target-schema-review-20261030.md
+      - scripts/stage4c-dba-target-contract.offline.test.mjs
+      - .github/workflows/stage4c-dba-target-contract-review-only.yml
+  pull_request:
+    paths:
+      - docs/stage4c-dba-target-contract.review.json
+      - docs/stage4c-dba-target-schema-review-20261030.md
+      - scripts/stage4c-dba-target-contract.offline.test.mjs
+      - .github/workflows/stage4c-dba-target-contract-review-only.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  static-design-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      ACM_RETURN_OPERATIONS_ENABLED: 'false'
+      ACM_UI_LIVE: 'false'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Validate only non-executable target manifest and mutation controls
+        run: node --test scripts/stage4c-dba-target-contract.offline.test.mjs

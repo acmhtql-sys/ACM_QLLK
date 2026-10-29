@@ -1,0 +1,213 @@
+{
+  "version": "2026-10-30-review-only-v1",
+  "authority": "Owner business decision 2026-10-29; DBA and executable database changes NOT approved",
+  "executable": false,
+  "migrationApproved": false,
+  "dataAccessApproved": false,
+  "sourceOfTruth": "GitHub Draft PR and verified UAT snapshot; not a database catalog",
+  "globalEvidence": {
+    "scope": "GLOBAL_ALL_ISSUERS",
+    "regex": "^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$",
+    "minLength": 1,
+    "maxLength": 128,
+    "validation": "ASCII_ONLY_BEFORE_CASEFOLD",
+    "key": "ASCII_UPPERCASE",
+    "registry": "evidence_registry",
+    "keyUniqueness": "GLOBAL_UNIQUE",
+    "reuseAfterCancellation": false,
+    "crossBorrowCollisionDenied": true,
+    "crossEntityTypeCollisionDenied": true,
+    "issuerAuthRequired": true,
+    "existingCodeScanBeforeMigration": true
+  },
+  "custody": {
+    "cancelBeforeReceive": "CANCELLED",
+    "cancelAfterPhysicalReceive": "RECONCILIATION_REQUIRED",
+    "cancellationRequiresReason": true,
+    "preserveReceiverAndCustody": true,
+    "resolutionKinds": [
+      "REVERSE_HANDOVER",
+      "APPROVED_DISPOSITION"
+    ],
+    "requireApprovedResolutionBeforeFinalCancelled": true,
+    "requireImmutableEvidenceAndReviewer": true,
+    "cancellationAvailableStockDelta": 0,
+    "reconciliationReasonForPostReceiptCancel": "POST_RECEIPT_CANCEL",
+    "otherReconciliationReasonsAllowed": true
+  },
+  "workflow": {
+    "phases": [
+      "PREPARE",
+      "RECEIVE",
+      "VERIFY",
+      "COMMIT",
+      "QC_APPROVE"
+    ],
+    "receiveRoles": [
+      "ADMIN",
+      "LAB_MANAGER",
+      "TECHNICIAN"
+    ],
+    "verifyCommitQcCancelRoles": [
+      "ADMIN",
+      "LAB_MANAGER"
+    ],
+    "receiverCannotVerify": true,
+    "physicalReturnAllowedConditions": [
+      "GOOD",
+      "DAMAGED"
+    ],
+    "lostHandling": "SEPARATE_INCIDENT",
+    "physicalCommitStockDestination": "QUARANTINE",
+    "qcGoodReleaseAfterCommitOnly": true,
+    "damagedNeverAutomaticallyAvailable": true
+  },
+  "requiredEntities": {
+    "evidence_registry": [
+      "id",
+      "original_ascii",
+      "comparison_key",
+      "issuer_actor_id",
+      "purpose_type",
+      "owner_object_id",
+      "issued_at"
+    ],
+    "borrow_return_operations": [
+      "id",
+      "borrow_request_id",
+      "state",
+      "created_by_id",
+      "physical_evidence_registry_id",
+      "received_by_id",
+      "received_at",
+      "verified_by_id",
+      "verified_at",
+      "cancel_requested_by_id",
+      "cancel_requested_at",
+      "cancel_reason",
+      "reconciliation_reason",
+      "committed_by_id",
+      "completed_at",
+      "cancelled_by_id",
+      "cancelled_at",
+      "created_at",
+      "updated_at",
+      "return_transaction_id"
+    ],
+    "return_operation_lines": [
+      "id",
+      "operation_id",
+      "borrow_detail_id",
+      "quantity",
+      "condition",
+      "qc_approved_by_id",
+      "qc_approved_at",
+      "stock_posting_id"
+    ],
+    "return_custody_resolutions": [
+      "id",
+      "operation_id",
+      "resolution_kind",
+      "evidence_registry_id",
+      "approved_by_id",
+      "approved_at",
+      "custody_receiver_id"
+    ],
+    "return_operation_idempotency": [
+      "id",
+      "borrow_request_id",
+      "request_key",
+      "payload_sha256",
+      "actor_id",
+      "first_seen_at",
+      "retained_until",
+      "result_reference"
+    ],
+    "return_stock_postings": [
+      "id",
+      "operation_id",
+      "borrow_detail_id",
+      "posting_kind",
+      "stock_movement_id",
+      "created_at"
+    ],
+    "return_loss_incidents": [
+      "id",
+      "borrow_request_id",
+      "borrow_detail_id",
+      "reported_by_id",
+      "created_at",
+      "status"
+    ]
+  },
+  "requiredDatabaseEnforcement": {
+    "evidenceRegistryGlobalCanonicalUnique": true,
+    "evidenceRegistryAsciiFormatAndCanonicalEquality": true,
+    "oneUnresolvedReturnOperationPerBorrowPartialUnique": true,
+    "operationReceiptSameBorrowCompositeFK": true,
+    "receiverAndVerifierImmutableProvenance": true,
+    "receiverCannotSelfVerify": true,
+    "qcApprovalsRequireCommittedGoodItems": true,
+    "custodyResolutionBeforeFinalCancelAfterReceive": true,
+    "lossIsNeverPhysicalReceipt": true,
+    "scopedBorrowAndRequestKeyIdempotencyUnique": true,
+    "permanentCommittedPostingDedup": true,
+    "operationStateAndTerminalFieldsCheck": true,
+    "newTimestampPrecision": "TIMESTAMPTZ_3"
+  },
+  "transactionContract": {
+    "isolation": "SERIALIZABLE",
+    "serverAuthenticatedActors": true,
+    "lockThenReloadPersistedState": true,
+    "sameTransactionEntities": [
+      "borrow_requests",
+      "borrow_details",
+      "borrow_return_operations",
+      "return_operation_lines",
+      "stock_balances",
+      "assets",
+      "return_transactions",
+      "return_stock_postings",
+      "audit_logs",
+      "return_operation_idempotency"
+    ],
+    "legacyWriterSameLockOrder": true,
+    "durableReceiptAndStockDedupSurvivesIdempotencyTTL": true,
+    "rollbackOnAnyPostFailure": true,
+    "retryDoesNotDoublePost": true
+  },
+  "idempotency": {
+    "scope": [
+      "borrow_request_id",
+      "request_key"
+    ],
+    "minRetentionDays": 365,
+    "permanentCommittedPostingDedup": true
+  },
+  "requiredProofs": [
+    "review_wip_vs_baseline_schema_and_migration_history",
+    "reject_casefold_collisions_in_existing_codes",
+    "pg17_reject_case_variations_across_borrows_and_entities",
+    "pg17_two_session_concurrent_evidence_issue",
+    "pg17_two_session_concurrent_unresolved_operations",
+    "pg17_composite_fk_rejects_other_borrow_receipt",
+    "pg17_reject_self_verification",
+    "pg17_cancel_after_receive_keeps_custody_and_stock_constant",
+    "pg17_refuse_unapproved_or_mismatched_custody_proof",
+    "pg17_verify_qc_good_only_and_quarantine_first",
+    "pg17_rollback_fault_injection_all_affected_tables",
+    "pg17_retry_idempotency_and_posting_after_ttl",
+    "pg17_backup_and_independent_restore",
+    "real_api_rbac_idor_end_to_end_and_legacy_writer_compatibility"
+  ],
+  "gates": {
+    "ownerBusinessReview": "APPROVED_REVIEW_ONLY",
+    "formalIssuerRegexApproval": "OPEN",
+    "DBADesign": "OPEN",
+    "isolatedPG17Authorization": "OPEN",
+    "isolatedPG17Evidence": "OPEN",
+    "backendWriter": "OPEN",
+    "localFullstackGo": "OPEN",
+    "cloudGo": "OPEN"
+  }
+}
