@@ -177,6 +177,8 @@ export function createLocalImageStorage(options: {
       const record = await load(id);
       if (!record) return false; // idempotent repeated deletion
       if (record.uploadedById !== actorId) fail('FORBIDDEN');
+      // Handover evidence cannot be destroyed through ordinary storage deletion.
+      if (record.purpose === 'RECEIPT_EVIDENCE') fail('FORBIDDEN');
       const files = filePaths(id);
       await rm(files.binary, { force: true });
       await rm(files.meta, { force: true });
