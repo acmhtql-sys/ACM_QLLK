@@ -1,0 +1,127 @@
+# ACM D8 WR7G: review-only, no real PostgreSQL service, no migrations, no writes.
+# This workflow intentionally lives on a new review branch, not main.
+name: ACM D8 WR7G Offline Review Only (No DB)
+
+on:
+  push:
+    branches:
+      - review/d8-wr7g-offline-ci-no-db-20261029
+
+permissions:
+  contents: read
+
+concurrency:
+  group: wr7g-offline-review-single-branch
+  cancel-in-progress: true
+
+jobs:
+  verify-offline:
+    name: Prisma + TS + 13 mock API suites (NO DB)
+    if: github.ref == 'refs/heads/review/d8-wr7g-offline-ci-no-db-20261029'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      CI: 'true'
+      NODE_ENV: test
+      PORT: '5000'
+      API_PREFIX: /api/v1
+      CORS_ORIGIN: http://localhost:5173
+      DATABASE_URL: postgresql://acm_review_mock:invalid@127.0.0.1:1/acm_inventory_test?schema=public
+      SHADOW_DATABASE_URL: postgresql://acm_review_mock:invalid@127.0.0.1:1/acm_inventory_shadow?schema=public
+      JWT_SECRET: acm-wr7g-nonproduction-test-only-key-2026
+      JWT_EXPIRES_IN: 1d
+      LOG_LEVEL: warn
+      ACM_DEPLOYMENT_PROFILE: local_dev
+      STAGING_READ_ONLY: 'false'
+      ALLOW_STAGING_AUTH_LOGIN: 'false'
+      ACM_RETURN_OPERATIONS_ENABLED: 'false'
+    steps:
+      - name: Checkout exact review commit
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Guard expected base, scope, and mock-only API unit allowlist
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = 'refs/heads/review/d8-wr7g-offline-ci-no-db-20261029'
+          git merge-base --is-ancestor '07c12670a062ee9fc1836a7b0b4dda55e7de8cff' HEAD
+          test "$NODE_ENV" = 'test'
+          test "$ACM_RETURN_OPERATIONS_ENABLED" = 'false'
+          test "$DATABASE_URL" = 'postgresql://acm_review_mock:invalid@127.0.0.1:1/acm_inventory_test?schema=public'
+          test ! -e apps/api/.env.test
+          test ! -e apps/api/prisma/Stage4C2B_CONSTRAINTS_REVIEW_ONLY.sql.txt
+          node <<'NODE'
+          const pkg = require('./apps/api/package.json');
+          const parts = pkg.scripts['test:unit'].trim().split(/\s+/);
+          if (parts.length !== 4 + 13 || parts.slice(0, 4).join(' ') !== 'vitest run -c vitest.mock.config.ts') {
+            throw new Error('NOT_EXACT_13_MOCK_UNIT_TARGETS');
+          }
+          const tests = parts.slice(4);
+          if (new Set(tests).size !== 13 || tests.some(x => !/^tests\/[A-Za-z0-9_.-]+\.unit\.test\.ts$/.test(x))) {
+            throw new Error('UNSAFE_UNIT_TARGET');
+          }
+          if (!tests.includes('tests/borrow.return-operations.stage4c2a.unit.test.ts') ||
+              !tests.includes('tests/borrow.return-operations.stage4c2b.schema-contract.unit.test.ts') ||
+              !tests.includes('tests/borrow.return.validation.stage4c.unit.test.ts')) {
+            throw new Error('STAGE4C_UNIT_TARGET_MISSING');
+          }
+          console.log('PASS WR7G_EXACT_13_MOCK_UNIT_TARGETS_NO_DB');
+          NODE
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install immutable lockfile dependencies
+        run: npm ci
+
+      - name: Validate Prisma schema, no database connection
+        run: npm run prisma:validate
+
+      - name: Generate Prisma client, no database connection
+        run: npm run prisma:generate
+
+      - name: Build shared TypeScript
+        run: npm run build:shared
+
+      - name: Typecheck API without output
+        run: npm run typecheck:api
+
+      - name: Create ephemeral synthetic .env.test (no real database)
+        shell: bash
+        run: |
+          set -euo pipefail
+          test ! -e apps/api/.env.test
+          umask 077
+          cat > apps/api/.env.test <<'EOF_TEST'
+          NODE_ENV=test
+          PORT=5000
+          API_PREFIX=/api/v1
+          CORS_ORIGIN=http://localhost:5173
+          DATABASE_URL=postgresql://acm_review_mock:invalid@127.0.0.1:1/acm_inventory_test?schema=public
+          SHADOW_DATABASE_URL=postgresql://acm_review_mock:invalid@127.0.0.1:1/acm_inventory_shadow?schema=public
+          JWT_SECRET=acm-wr7g-nonproduction-test-only-key-2026
+          JWT_EXPIRES_IN=1d
+          LOG_LEVEL=warn
+          ACM_DEPLOYMENT_PROFILE=local_dev
+          STAGING_READ_ONLY=false
+          ALLOW_STAGING_AUTH_LOGIN=false
+          ACM_RETURN_OPERATIONS_ENABLED=false
+          EOF_TEST
+          test "$(stat -c %a apps/api/.env.test)" = 600
+          echo 'PASS WR7G_EPHEMERAL_TEST_ENV_DUMMY_LOOPBACK_PORT1'
+
+      - name: Run exact 13 API mock-only unit suites
+        run: npm run test:unit --workspace=@acm/api
+
+      - name: Check no tracked source changes
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -z "$(git status --porcelain --untracked-files=no)"
+          echo 'PASS WR7G_NO_TRACKED_SOURCE_MODIFICATIONS'
