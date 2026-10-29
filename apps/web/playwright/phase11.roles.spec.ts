@@ -69,7 +69,8 @@ test('Unauthenticated direct URL redirects to login', async ({ page }) => {
 for (const role of ['ADMIN','LAB_MANAGER','TECHNICIAN','STUDENT'] as const) {
   test(role + ' sees expected sidebar and borrow controls', async ({ page }) => {
     await signInFixture(page, role);
-    await expect(page.getByText('UAT-BR-PENDING')).toBeVisible();
+    // Desktop table and mobile card both render the same ID; target its desktop cell.
+    await expect(page.getByRole('cell', { name: 'UAT-BR-PENDING', exact: true })).toBeVisible();
     const menu = page.locator('aside');
     for (const [name, allowed] of [
       [/Báo cáo & Thống kê/, role === 'ADMIN'],
