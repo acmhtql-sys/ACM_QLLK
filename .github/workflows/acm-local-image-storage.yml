@@ -1,0 +1,34 @@
+name: ACM local private image storage (no DB or cloud)
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - 'feat/local-private-image-storage-*'
+    paths:
+      - 'apps/api/src/modules/storage/local-image.storage.ts'
+      - 'scripts/acm-local-image-storage.offline.mjs'
+      - '.github/workflows/acm-local-image-storage.yml'
+  pull_request:
+    paths:
+      - 'apps/api/src/modules/storage/local-image.storage.ts'
+      - 'scripts/acm-local-image-storage.offline.mjs'
+      - '.github/workflows/acm-local-image-storage.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  local-storage:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+      - name: Test local-only storage without database or cloud
+        run: node --experimental-strip-types --test scripts/acm-local-image-storage.offline.mjs
+      - name: Install TypeScript typings without lifecycle scripts
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Strict standalone TypeScript check
+        run: ./node_modules/.bin/tsc --noEmit --strict --target ES2022 --module commonjs --moduleResolution node --esModuleInterop --skipLibCheck --types node apps/api/src/modules/storage/local-image.storage.ts
