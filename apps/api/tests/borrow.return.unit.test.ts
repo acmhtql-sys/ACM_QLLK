@@ -56,6 +56,8 @@ vi.mock('../src/config/database', () => {
     auditLog: {
       create: vi.fn(),
     },
+    // Lock-first D7: simulate row-level lock without any real PostgreSQL call.
+    $queryRaw: vi.fn(async () => [{ id: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc' }]),
   };
 
   return {
@@ -212,7 +214,8 @@ describe('ACM Phase 4 – Borrow & Return Management Test Suite', () => {
 
   const itemId = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
   const locationId = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb';
-  const borrowRequestId = 'cccccccc-cccc-cccc-cccc-cccccccccccc';
+  // UUID v4 with valid RFC 4122 version and variant; D7 checks IDs before DB lock.
+  const borrowRequestId = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
   const borrowDetailId = 'dddddddd-dddd-dddd-dddd-dddddddddddd';
   const reservationId = 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee';
 
