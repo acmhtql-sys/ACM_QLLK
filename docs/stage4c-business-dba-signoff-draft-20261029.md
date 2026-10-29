@@ -3,7 +3,7 @@
 **Ngày lập:** 2026-10-29  
 **Nguồn mã:** ZIP UAT `ACM_UAT_SourceReview_ONLY_20261029_204537.zip`, SHA-256 `938479d53afa7f16b2923bbf9611b4480957c19ce24d835b84d19c59d5fc332a`; `schema.prisma` SHA-256 `ab5bbdc7f6f1de397740fadb4d5522a59bbb9a819e23dfd658218cc144032fac`.  
 **Gates:** #11 (business + DBA), #12 (separate PG-cluster approvals), #13 (SQL/migration-specific authorization), #14 (writer implementation), #15 (release), #21 (Supabase).  
-**Trạng thái:** CHƯA CÓ PHÊ DUYỆT NGHIỆP VỤ / DBA. *Không suy ra quyết định chuyên môn từ câu trả lời “đồng ý” trong cuộc trò chuyện.*
+**Trạng thái cập nhật 2026-10-29:** **BIZ-01…05 được chủ dự án phê duyệt rõ trong hội thoại** (business only); **DBA-01…07 chưa có reviewer độc lập / chưa phê duyệt**. Phê duyệt nghiệp vụ **không phải** quyền tạo database, thực thi SQL/migration, sửa UAT, mở API hay phát hành. Xem hồ sơ chuẩn tại `docs/stage4c-owner-business-policy-proposal-20261029.md`.
 
 ## A. Các quyết định nghiệp vụ cần chủ quản lý ký
 
@@ -15,13 +15,15 @@
 | BIZ-04 | Ai có quyền PREPARE/COMMIT/CANCEL? | Đề xuất phân quyền ADMIN, LAB_MANAGER, TECHNICIAN theo nghiệp vụ; ghi ai thực hiện + thời điểm + phiếu và chứng từ; quy định người tạo có được tự commit hay không. | `borrow.router.ts`, `BorrowReturnOperation` |
 | BIZ-05 | Trả một phần, trả vượt, hủy, trả trùng | Chặn overreturn; một operation unresolved/borrow; retry cùng payload chỉ trả lại kết quả cũ, khác payload phải conflict; không “hoàn trả” hai lần. | UNIQUE/partial UNIQUE + transaction + idempotency |
 
-**Quyết định nghiệp vụ (chưa điền):**
-- BIZ-01: APPROVE / REJECT / CHANGE REQUESTED: `[chưa quyết định]`
-- BIZ-02: `[chưa quyết định]`
-- BIZ-03: `[chưa quyết định]`
-- BIZ-04: `[chưa quyết định]`
-- BIZ-05: `[chưa quyết định]`
-- Người có thẩm quyền, chức danh, thời điểm, nguồn quyết định có thể kiểm chứng: `[bắt buộc bổ sung ngoài hồ sơ dự thảo]`
+**Bảng ghi nhận quyết định của chủ dự án (business only, 2026-10-29):**
+- BIZ-01: **APPROVED** — mã chứng từ ASCII 1–128 ký tự, regex xác định, không phân biệt hoa/thường.
+- BIZ-02: **APPROVED Option A** — ACM phát hành chứng từ; nhân viên xác nhận nhận vật lý; **người khác có thẩm quyền** VERIFY độc lập trước COMMIT.
+- BIZ-03: **APPROVED Option B** — thực nhận cách ly trước; GOOD chỉ khả dụng sau QC được duyệt; DAMAGED vẫn cách ly; LOST có biên bản riêng, không nhận hàng giả.
+- BIZ-04: **APPROVED Option A** — ADMIN/LAB_MANAGER/TECHNICIAN PREPARE/RECEIVE; chỉ ADMIN/LAB_MANAGER VERIFY/COMMIT/QC/CANCEL trước COMMIT có lý do; VERIFY actor khác RECEIVE actor; audit đầy đủ.
+- BIZ-05: **APPROVED Option A** — trả một phần nhiều lần; tối đa một operation unresolved/borrow; chống overreturn/double-commit, idempotency theo borrow + key, từ chối payload/actor không hợp lệ; retention ≥365 ngày và durable committed receipt; CANCEL không ghi tồn; COMMIT atomic.
+- **Nguồn chứng thực:** các phát biểu trực tiếp của người dùng tự xác nhận là chủ dự án có quyền quyết định nghiệp vụ ACM trong hội thoại dự án ngày 2026-10-29. **Không có kiểm tra danh tính ngoài hội thoại**; cần liên kết/tài liệu xác thực trong hệ thống tổ chức nếu quy trình phê duyệt yêu cầu.
+- **Hồ sơ chi tiết có thẩm quyền:** `docs/stage4c-owner-business-policy-proposal-20261029.md`. Các hàng “đề xuất” phía trên là nền tảng kỹ thuật lịch sử, không được ưu tiên hơn quyết định đã chốt.
+- **Còn thiếu:** DBA signoff, phạm vi unique/canonicalization, cụ thể hóa stock balance và asset transition, retention implementation, quyết định cấp quyền migration.
 
 ## B. Các quyết định DBA độc lập cần ký
 
@@ -39,11 +41,11 @@
 - DBA-01…07: `[chưa quyết định]`
 - Họ tên/chức danh reviewer độc lập, thời gian, cơ sở review, SHA DDL cuối, quyết định: `[bắt buộc bổ sung]`
 
-## C. Điều kiện được bắt đầu giai đoạn 2 (offline code review)
+## C. Điều kiện và giới hạn của giai đoạn 2 (offline code review)
 
-- Có quyết định nghiệp vụ có thể kiểm chứng cho BIZ-01…05.
-- DBA review các điều kiện dữ liệu và DDL; SQL execution vẫn là **một quyết định khác**.
-- Backend writer được phát triển trên nhánh riêng có review, không ghi UAT, không bật `ACM_RETURN_OPERATIONS_ENABLED`.
+- **Đã có các quyết định BIZ-01…05 qua hội thoại**, xem register; cần ghi chứng thực tổ chức nếu áp dụng.
+- Có thể bắt đầu **chuẩn bị Backend / mock tests / review offline** trong nhánh riêng dù DBA signoff còn thiếu; không được coi đó là GO cho DB hoặc endpoint 503. DBA review các điều kiện dữ liệu và DDL là cổng trước khi thực thi schema, và SQL execution vẫn là **một quyết định khác**.
+- Backend writer chỉ được **chuẩn bị/phát triển fail-closed** trên nhánh riêng có review, không ghi UAT, không bật `ACM_RETURN_OPERATIONS_ENABLED`.
 - Test offline bao phủ canonical payload, duplicate item/evidence, hash mismatch, RBAC, overreturn, terminal-state consistency, replay/conflict.
 
 ## D. Điều kiện mở cổng chạy PostgreSQL / Supabase thử nghiệm
