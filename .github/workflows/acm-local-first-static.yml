@@ -1,0 +1,26 @@
+name: ACM Local-first static inventory (no DB)
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - docs/supabase-staging-preflight-20261029
+    paths:
+      - scripts/acm-local-first-inventory.mjs
+      - .github/workflows/acm-local-first-static.yml
+  pull_request:
+    paths:
+      - scripts/acm-local-first-inventory.mjs
+      - .github/workflows/acm-local-first-static.yml
+permissions:
+  contents: read
+jobs:
+  source-inventory:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+      - name: Static read-only evidence (no DB, secrets, network or npm install)
+        run: node scripts/acm-local-first-inventory.mjs .
