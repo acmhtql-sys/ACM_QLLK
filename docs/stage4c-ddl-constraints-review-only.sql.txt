@@ -1,0 +1,89 @@
+-- ACM STAGE4C DDL DESIGN SKETCH ONLY / 2026-10-29
+-- NEVER EXECUTE. NOT DBA APPROVED. NOT A PRISMA MIGRATION.
+-- All statements are commented intentionally; this file is non-executable as supplied.
+-- SOURCE WIP SCHEMA SHA256 ab5bbdc7f6f1de397740fadb4d5522a59bbb9a819e23dfd658218cc144032fac
+-- DBA must generate and review ONE final Prisma diff + guarded rollback, pinned hashes.
+-- DO NOT RUN candidate Stage4C2A and Stage4C2B sequentially.
+--
+-- PROPOSED EXISTING OPERATION DELTA, after approved Prisma/model relations:
+-- ALTER TABLE public.borrow_return_operations ADD COLUMN received_by_id uuid NULL;
+-- ALTER TABLE public.borrow_return_operations ADD COLUMN received_at timestamptz NULL;
+-- ALTER TABLE public.borrow_return_operations ADD COLUMN verified_by_id uuid NULL;
+-- ALTER TABLE public.borrow_return_operations ADD COLUMN verified_at timestamptz NULL;
+-- ALTER TABLE public.borrow_return_operations ADD COLUMN evidence_issued_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP;
+-- ALTER TABLE public.borrow_return_operations ADD COLUMN evidence_issuer text NOT NULL DEFAULT 'ACM';
+-- ALTER TABLE public.borrow_return_operations ADD COLUMN physical_evidence_canonical text;
+-- DO NOT turn the canonical column NOT NULL or backfill until collision review and explicit permission.
+--
+-- PROPOSED BIZ-01 STRICT ASCII/CASE CHECK (DBA to validate PostgreSQL regex semantics):
+-- CHECK (physical_evidence_ref IS NOT NULL
+--        AND char_length(physical_evidence_ref) BETWEEN 1 AND 128
+--        AND physical_evidence_ref COLLATE "C" ~ '^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$'
+--        AND physical_evidence_ref !~ '[[:cntrl:]]'
+--        AND physical_evidence_canonical IS NOT NULL
+--        AND physical_evidence_canonical = upper(physical_evidence_ref COLLATE "C"));
+-- PROPOSED GLOBAL canonical uniqueness scope for DBA/BUSINESS DECISION (not approved):
+-- CREATE UNIQUE INDEX borrow_return_ops_evidence_canonical_unique
+--   ON public.borrow_return_operations (physical_evidence_canonical);
+-- Alternative: UNIQUE (borrow_request_id, physical_evidence_canonical); NEVER assume scope.
+--
+-- PROPOSED BIZ-02/04 VERIFIED HUMAN PROVENANCE:
+-- CHECK (((received_by_id IS NULL AND received_at IS NULL)
+--          OR (received_by_id IS NOT NULL AND received_at IS NOT NULL))
+--        AND ((verified_by_id IS NULL AND verified_at IS NULL)
+--          OR (verified_by_id IS NOT NULL AND verified_at IS NOT NULL
+--              AND received_by_id IS NOT NULL AND received_by_id <> verified_by_id)));
+-- CHECK (state <> 'COMPLETED' OR
+--        (return_transaction_id IS NOT NULL AND committed_by_id IS NOT NULL
+--         AND completed_at IS NOT NULL AND received_by_id IS NOT NULL
+--         AND verified_by_id IS NOT NULL AND verified_at IS NOT NULL));
+-- ADD FOREIGN KEY received_by_id, verified_by_id --> public.users(id) ON DELETE RESTRICT.
+-- RBAC and trusted authentication MUST be checked on Backend, not by a CHECK constraint.
+--
+-- PROPOSED EXACTLY ONE UNRESOLVED OPERATION PER BORROW (only one final index):
+-- CREATE UNIQUE INDEX borrow_return_operations_one_unresolved_per_borrow
+--   ON public.borrow_return_operations (borrow_request_id)
+--   WHERE state IN ('PREPARED','RECONCILIATION_REQUIRED');
+--
+-- PROPOSED COMPOSITE FK OWNERSHIP OF COMMITTED RECEIPT:
+-- REVIEW UNIQUE return_transactions(id,"borrowRequestId") from actual WIP schema.
+-- FOREIGN KEY (return_transaction_id, borrow_request_id)
+--   REFERENCES public.return_transactions(id,"borrowRequestId") ON DELETE RESTRICT;
+--
+-- PROPOSED PHYSICAL RETURN LINE (NOT LOST):
+-- CREATE TABLE public.borrow_return_operation_lines (
+--   id uuid PRIMARY KEY,
+--   operation_id uuid NOT NULL,
+--   borrow_request_id uuid NOT NULL,
+--   borrow_detail_id uuid NOT NULL,
+--   quantity integer NOT NULL CHECK (quantity > 0),
+--   condition text NOT NULL CHECK (condition IN ('GOOD','DAMAGED')),
+--   qc_released_at timestamptz NULL,
+--   qc_released_by_id uuid NULL REFERENCES public.users(id) ON DELETE RESTRICT,
+--   UNIQUE (operation_id,borrow_detail_id),
+--   CHECK ((qc_released_at IS NULL AND qc_released_by_id IS NULL)
+--          OR (qc_released_at IS NOT NULL AND qc_released_by_id IS NOT NULL
+--              AND condition = 'GOOD'))
+-- );
+-- DBA REVIEW: parent UNIQUE (id,borrow_request_id) on borrow_return_operations.
+-- DBA REVIEW: parent UNIQUE (id,"borrowRequestId") on borrow_details.
+-- DBA REVIEW: FK (operation_id,borrow_request_id) to borrow_return_operations(id,borrow_request_id).
+-- DBA REVIEW: FK (borrow_detail_id,borrow_request_id) to borrow_details(id,"borrowRequestId").
+-- DBA REVIEW: Asset serial mapping and atomic stock effect provenance.
+--
+-- PROPOSED BIZ-05 SCOPED REQUEST KEY (do NOT mutate legacy idempotency_records):
+-- CREATE TABLE public.borrow_return_request_keys (
+--   id uuid PRIMARY KEY,
+--   borrow_request_id uuid NOT NULL REFERENCES public.borrow_requests(id) ON DELETE RESTRICT,
+--   request_key text NOT NULL,
+--   actor_id uuid NOT NULL REFERENCES public.users(id) ON DELETE RESTRICT,
+--   payload_hash text NOT NULL CHECK (payload_hash ~ '^[0-9a-f]{64}$'),
+--   operation_id uuid NOT NULL,
+--   created_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP,
+--   retain_until timestamptz NOT NULL,
+--   UNIQUE (borrow_request_id,request_key),
+--   CHECK (retain_until >= created_at + INTERVAL '365 days')
+-- );
+-- DBA REVIEW: same borrow+operation FK; immutable actor/hash; durable committed receipt
+-- and per-line stock-effect UNIQUE (operation_line_id,effect_kind) after key expiry.
+-- NO migration executed, no live database, no UAT modifications, no Supabase writes.
