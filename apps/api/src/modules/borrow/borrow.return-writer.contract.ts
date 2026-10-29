@@ -87,8 +87,10 @@ export type WriterInput =
   | { readonly action: 'FINALIZE_CANCELLATION'; readonly borrowRequestId: string; readonly operationId: string; readonly requestKey: string; readonly custodyResolutionId: string };
 
 export class ReturnWriterContractError extends Error {
-  constructor(public readonly code: 'INVALID_INPUT' | 'FORBIDDEN' | 'NOT_FOUND' | 'REPLAY_CONFLICT' | 'WRITE_CONTRACT_BREACH') {
+  public readonly code: 'INVALID_INPUT' | 'FORBIDDEN' | 'NOT_FOUND' | 'REPLAY_CONFLICT' | 'WRITE_CONTRACT_BREACH';
+  constructor(code: 'INVALID_INPUT' | 'FORBIDDEN' | 'NOT_FOUND' | 'REPLAY_CONFLICT' | 'WRITE_CONTRACT_BREACH') {
     super('Stage4C writer denied: ' + code);
+    this.code = code;
     this.name = 'ReturnWriterContractError';
   }
 }
