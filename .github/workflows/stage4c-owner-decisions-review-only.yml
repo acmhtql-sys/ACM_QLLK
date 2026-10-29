@@ -1,0 +1,42 @@
+name: Stage4C owner decisions OFFLINE (review only)
+on:
+  push:
+    branches:
+      - review/stage4c-owner-global-evidence-custody-20261029
+    paths:
+      - apps/api/src/modules/borrow/borrow.return-policy.ts
+      - scripts/stage4c-return-policy.offline.mjs
+      - scripts/stage4c-return-workflow.offline.mjs
+      - scripts/stage4c-owner-decisions.offline.mjs
+      - .github/workflows/stage4c-owner-decisions-review-only.yml
+  pull_request:
+    paths:
+      - apps/api/src/modules/borrow/borrow.return-policy.ts
+      - scripts/stage4c-return-policy.offline.mjs
+      - scripts/stage4c-return-workflow.offline.mjs
+      - scripts/stage4c-owner-decisions.offline.mjs
+      - .github/workflows/stage4c-owner-decisions-review-only.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  pure-policy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      CI: 'true'
+      ACM_UI_LIVE: 'false'
+      ACM_RETURN_OPERATIONS_ENABLED: 'false'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Install locked deps without lifecycle scripts
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Strict typecheck isolated policy (NO Prisma)
+        run: ./node_modules/.bin/tsc --noEmit --strict --target ES2022 --module commonjs --moduleResolution node --esModuleInterop --skipLibCheck --types node apps/api/src/modules/borrow/borrow.return-policy.ts
+      - name: Test only pure policy, workflow and approved owner decisions (NO DB)
+        run: node --experimental-strip-types --test scripts/stage4c-return-policy.offline.mjs scripts/stage4c-return-workflow.offline.mjs scripts/stage4c-owner-decisions.offline.mjs
