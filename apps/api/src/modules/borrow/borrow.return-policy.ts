@@ -8,7 +8,7 @@
  */
 
 export type ReturnStaffRole = 'ADMIN' | 'LAB_MANAGER' | 'TECHNICIAN' | 'STUDENT';
-export type ReturnAction = 'PREPARE' | 'RECEIVE' | 'VERIFY' | 'COMMIT' | 'QC_APPROVE' | 'CANCEL';
+export type ReturnAction = 'PREPARE' | 'RECEIVE' | 'VERIFY' | 'COMMIT' | 'QC_APPROVE' | 'CANCEL' | 'FINALIZE_CANCELLATION';
 export type ReturnCondition = 'GOOD' | 'DAMAGED' | 'LOST';
 export type ReturnOperationState = 'PREPARED' | 'RECONCILIATION_REQUIRED' | 'COMPLETED' | 'CANCELLED';
 
@@ -17,7 +17,8 @@ export type ReturnPolicyErrorCode =
   | 'SELF_VERIFICATION' | 'RECEIPT_REQUIRED' | 'VERIFICATION_REQUIRED'
   | 'CANCEL_REASON_REQUIRED' | 'OPERATION_UNRESOLVED' | 'INVALID_QUANTITY'
   | 'UNRECOGNIZED_DETAIL' | 'DUPLICATE_DETAIL' | 'OVER_RETURN'
-  | 'LOSS_REQUIRES_INCIDENT' | 'INVALID_REPLAY' | 'INVALID_RETENTION';
+  | 'LOSS_REQUIRES_INCIDENT' | 'INVALID_REPLAY' | 'INVALID_RETENTION'
+  | 'EVIDENCE_CONFLICT' | 'INVALID_CUSTODY_PROOF';
 
 export class ReturnPolicyError extends Error {
   public readonly code: ReturnPolicyErrorCode;
@@ -40,6 +41,22 @@ export function normalizeEvidenceCode(input: unknown): { original: string; compa
   return { original: input, comparisonKey: input.toUpperCase() };
 }
 
+/** Owner decision 2026-10-29: comparison is GLOBAL, not scoped per borrow.
+ * This is an offline guard only. The real writer MUST enforce a global DB
+ * UNIQUE constraint on a canonical key within the same locked transaction.
+ * A caller-provided list never establishes safe uniqueness.
+ */
+export function assertEvidenceGloballyUnused(
+  proposed: unknown, persistedGlobalReferences: readonly string[],
+): { original: string; comparisonKey: string } {
+  const candidate = normalizeEvidenceCode(proposed);
+  if (!Array.isArray(persistedGlobalReferences)) deny('INVALID_EVIDENCE');
+  for (const existing of persistedGlobalReferences) {
+    if (normalizeEvidenceCode(existing).comparisonKey === candidate.comparisonKey) deny('EVIDENCE_CONFLICT');
+  }
+  return candidate;
+}
+
 export interface ReturnActor { id: string; role: ReturnStaffRole }
 export interface TrustedReturnState {
   status: ReturnOperationState;
@@ -57,6 +74,7 @@ const ROLE_PERMISSIONS: Readonly<Record<ReturnAction, ReadonlySet<ReturnStaffRol
   COMMIT: new Set(['ADMIN', 'LAB_MANAGER']),
   QC_APPROVE: new Set(['ADMIN', 'LAB_MANAGER']),
   CANCEL: new Set(['ADMIN', 'LAB_MANAGER']),
+  FINALIZE_CANCELLATION: new Set(['ADMIN', 'LAB_MANAGER']),
 };
 
 /**
@@ -78,6 +96,11 @@ export function assertReturnActionAllowed(
   }
   if (action === 'QC_APPROVE') {
     if (persisted.status !== 'COMPLETED' || !persisted.physicallyReceived || !persisted.independentlyVerified || !persisted.receiverId || !persisted.verifierId || persisted.receiverId === persisted.verifierId) deny('STATE_CONFLICT');
+    return;
+  }
+  if (action === 'FINALIZE_CANCELLATION') {
+    if (persisted.status !== 'RECONCILIATION_REQUIRED' ||
+        !persisted.physicallyReceived || !persisted.receiverId) deny('STATE_CONFLICT');
     return;
   }
   if (persisted.status !== 'PREPARED') deny('STATE_CONFLICT');
@@ -185,7 +208,24 @@ export interface WorkflowLine {
   readonly condition: Exclude<ReturnCondition, 'LOST'>;
   readonly qualityReleased: boolean;
 }
+export type CustodyResolutionKind = 'REVERSE_HANDOVER' | 'APPROVED_DISPOSITION';
+export interface CustodyRecord {
+  readonly receivedById: string;
+  readonly resolution?: { readonly kind: CustodyResolutionKind; readonly evidenceRef: string };
+}
+/** Trusted proof must be authenticated, scoped, locked and loaded by future DB adapter,
+ * never accepted directly from HTTP; structurally valid proof is NOT a signature.
+ */
+export interface TrustedCustodyResolution {
+  readonly kind: CustodyResolutionKind;
+  readonly evidenceRef: string;
+  readonly custodyReceiverId: string;
+  readonly approvedById: string;
+  readonly approved: true;
+}
 export interface ReturnWorkflowSnapshot extends TrustedReturnState {
+  /** Proposed custody provenance; only the future DB writer can make it durable. */
+  readonly custody?: CustodyRecord;
   /** Physically received goods; LOST is never represented as received. */
   readonly lines: readonly WorkflowLine[];
   readonly cancelReason?: string | null;
@@ -195,13 +235,16 @@ export type ReturnWorkflowCommand =
   | { readonly action: 'VERIFY'; readonly actor: ReturnActor }
   | { readonly action: 'COMMIT'; readonly actor: ReturnActor; readonly lockedBorrowDetails: readonly BorrowedDetail[] }
   | { readonly action: 'CANCEL'; readonly actor: ReturnActor; readonly reason: string }
+  | { readonly action: 'FINALIZE_CANCELLATION'; readonly actor: ReturnActor; readonly trustedResolution: TrustedCustodyResolution }
   | { readonly action: 'QC_APPROVE'; readonly actor: ReturnActor; readonly borrowDetailIds: readonly string[] };
 
 export interface ReturnWorkflowPlan {
   readonly next: ReturnWorkflowSnapshot;
   readonly actorId: string;
   readonly event: 'PHYSICAL_RECEIPT_CONFIRMED' | 'INDEPENDENTLY_VERIFIED' |
-    'COMMIT_REQUESTED' | 'CANCEL_REQUESTED' | 'QUALITY_RELEASE_REQUESTED';
+    'COMMIT_REQUESTED' | 'CANCEL_REQUESTED' | 'CUSTODY_RESOLUTION_APPROVED' | 'QUALITY_RELEASE_REQUESTED';
+  /** For cancellation commands only: no automatic available-stock movement. */
+  readonly cancellationAvailableStockDelta?: 0;
   /** Plan-only, NOT evidence that a transaction or audit entry was written. */
   readonly requiresAtomicDatabaseWrite: true;
 }
@@ -222,6 +265,13 @@ function assertCoherentSnapshot(s: ReturnWorkflowSnapshot): void {
   if (s.physicallyReceived !== (typeof s.receiverId === 'string' && s.receiverId.trim().length > 0)) stateConflict();
   if (s.independentlyVerified !== (typeof s.verifierId === 'string' && s.verifierId.trim().length > 0)) stateConflict();
   if (s.independentlyVerified && (!s.physicallyReceived || s.receiverId === s.verifierId)) stateConflict();
+  if (s.physicallyReceived) {
+    if (!s.custody || s.custody.receivedById !== s.receiverId) stateConflict();
+  } else if (s.custody) stateConflict();
+  if (s.status === 'RECONCILIATION_REQUIRED' &&
+      (!s.physicallyReceived || !s.custody || s.custody.resolution)) stateConflict();
+  if (s.status === 'CANCELLED' && s.physicallyReceived &&
+      (!s.custody || !s.custody.resolution)) stateConflict();
   if (s.status === 'COMPLETED' && !s.independentlyVerified) stateConflict();
   if (s.status === 'CANCELLED' && s.lines.some(l => l.qualityReleased)) stateConflict();
 }
@@ -247,6 +297,7 @@ export function planReturnTransition(
       if (snapshot.physicallyReceived || snapshot.receiverId) stateConflict();
       return { ...common, event: 'PHYSICAL_RECEIPT_CONFIRMED', next: {
         ...snapshot, physicallyReceived: true, receiverId: command.actor.id,
+        custody: { receivedById: command.actor.id },
       } };
     case 'VERIFY':
       if (snapshot.verifierId || snapshot.independentlyVerified) stateConflict();
@@ -264,9 +315,32 @@ export function planReturnTransition(
         ...snapshot, status: 'COMPLETED',
       } };
     case 'CANCEL':
-      return { ...common, event: 'CANCEL_REQUESTED', next: {
-        ...snapshot, status: 'CANCELLED', cancelReason: command.reason.trim(),
+      // Owner-approved: physical custody requires reconciliation, not immediate cancellation.
+      return { ...common, event: 'CANCEL_REQUESTED', cancellationAvailableStockDelta: 0, next: {
+        ...snapshot,
+        status: snapshot.physicallyReceived ? 'RECONCILIATION_REQUIRED' : 'CANCELLED',
+        cancelReason: command.reason.trim(),
       } };
+    case 'FINALIZE_CANCELLATION': {
+      const proof = command.trustedResolution;
+      if (!proof || proof.approved !== true ||
+          (proof.kind !== 'REVERSE_HANDOVER' && proof.kind !== 'APPROVED_DISPOSITION') ||
+          typeof proof.custodyReceiverId !== 'string' ||
+          proof.custodyReceiverId !== snapshot.custody?.receivedById ||
+          typeof proof.approvedById !== 'string' || !proof.approvedById.trim()) deny('INVALID_CUSTODY_PROOF');
+      // Future DB adapter MUST load evidence, approval and actor from immutable trusted records.
+      // Syntactic validation here cannot verify authenticity or legal disposition.
+      try { normalizeEvidenceCode(proof.evidenceRef); }
+      catch { deny('INVALID_CUSTODY_PROOF'); }
+      return { ...common, event: 'CUSTODY_RESOLUTION_APPROVED',
+        cancellationAvailableStockDelta: 0, next: {
+          ...snapshot, status: 'CANCELLED',
+          custody: { ...snapshot.custody!, resolution: {
+            kind: proof.kind, evidenceRef: proof.evidenceRef,
+          } },
+        },
+      };
+    }
     case 'QC_APPROVE': {
       if (!Array.isArray(command.borrowDetailIds) || command.borrowDetailIds.length === 0) invalidLine();
       const approved = new Set<string>();
