@@ -1,6 +1,6 @@
 # ACM — Đăng ký quyết định nghiệp vụ Stage4C
 
-**Trạng thái 2026-10-29:** BIZ-01 và BIZ-02 **OWNER APPROVED — BUSINESS ONLY**; BIZ-03…05 **AWAITING OWNER DECISION**. Không phải phê duyệt DBA, migration, ghi Supabase hoặc release GO.
+**Trạng thái 2026-10-29:** BIZ-01, BIZ-02 và BIZ-03 **OWNER APPROVED — BUSINESS ONLY**; BIZ-04…05 **AWAITING OWNER DECISION**. Không phải phê duyệt DBA, migration, ghi Supabase hoặc release GO.
 
 Nguồn mã kiểm tra: UAT Stage4C 9-file ZIP SHA-256 `938479d53afa7f16b2923bbf9611b4480957c19ce24d835b84d19c59d5fc332a`. Hồ sơ DBA: `docs/stage4c-business-dba-signoff-draft-20261029.md`.
 
@@ -24,13 +24,17 @@ Nguồn mã kiểm tra: UAT Stage4C 9-file ZIP SHA-256 `938479d53afa7f16b2923bbf
 - Vai trò cụ thể ADMIN / LAB_MANAGER / TECHNICIAN và quy tắc COMMIT/CANCEL sẽ chốt ở **BIZ-04**, chưa mặc định phê duyệt.
 - Kết quả: **APPROVED_BY_PROJECT_OWNER — BUSINESS ONLY**.
 
-## BIZ-03 — Chờ quyết định riêng: thiết bị GOOD / DAMAGED / LOST
+## BIZ-03 — Đã phê duyệt phương án B (cách ly trước, kiểm tra sau)
 
-**Đề xuất A — Kiểm tra trước, hoàn nhập ngay:** Thiết bị GOOD chỉ vào kho khả dụng sau khi nhân viên nhận đánh giá tốt và quy trình BIZ-02 được xác minh; DAMAGED chuyển cách ly, không đưa vào khả dụng; LOST lập biên bản thất lạc, không tính là nhận vật lý, không hoàn tồn khả dụng.
+**Chủ dự án phê duyệt ngày 2026-10-29:** “Tôi chọn và phê duyệt BIZ-03 phương án B: mọi thiết bị thực nhận phải được cách ly chờ kiểm tra, chỉ GOOD được duyệt mới trở lại khả dụng; DAMAGED tiếp tục cách ly; LOST lập biên bản riêng, không ghi nhận nhận vật lý hoặc hoàn nhập tồn khả dụng.”
 
-**Đề xuất B — Cách ly trước, kiểm tra sau:** Mọi thiết bị đã nhận, kể cả GOOD, ban đầu ở trạng thái chờ kiểm tra/cách ly. Chỉ sau khi người được phân quyền duyệt kiểm tra chất lượng thì GOOD mới vào khả dụng; DAMAGED tiếp tục cách ly, LOST chỉ lập biên bản sự cố và không hoàn tồn khả dụng.
-
-Cần chủ dự án quyết định cách xử lý GOOD, vai trò kiểm tra chất lượng, xử lý hỏng/mất/chi phí; DBA phải đối chiếu ý nghĩa `onHand`, `quarantined`, `borrowed` và trạng thái Asset trước khi thiết kế cập nhật tồn kho. Không tự suy đoán số học stock.
+- **Thiết bị thực nhận:** luôn đi vào trạng thái chờ kiểm tra/cách ly trước; không tăng khả dụng chỉ vì nhân viên đã nhận hoặc đã tạo mã chứng từ.
+- **GOOD:** chỉ chuyển từ cách ly/chờ kiểm tra sang khả dụng sau khi được người có quyền phê duyệt kiểm tra chất lượng, cùng bằng chứng bàn giao BIZ-02 hợp lệ.
+- **DAMAGED:** tiếp tục cách ly và không tăng tồn khả dụng, chờ xử lý/bảo trì/loại bỏ theo chính sách chưa chốt.
+- **LOST:** ghi biên bản thất lạc riêng; không giả lập việc nhận thiết bị vật lý, không tăng tồn khả dụng; cơ chế điều chỉnh borrowed/onHand/Asset và bồi thường cần quy tắc nghiệp vụ, kế toán và review kỹ thuật riêng.
+- **Điều kiện phối hợp BIZ-02:** tiếp nhận thực tế và người khác xác minh độc lập trước COMMIT; với LOST, không thể thực hiện xác nhận “đã nhận vật lý” cho vật bị mất — cần luồng sự cố riêng, không dùng COMMIT nhận hàng giả.
+- **Phần chưa chốt:** ai kiểm tra/duyệt chất lượng (BIZ-04), ai phê duyệt xử lý hỏng/mất, số học StockBalance (onHand/quarantined/borrowed/available) và chuyển trạng thái serial/Asset. Không tự áp đặt SQL hoặc cập nhật stock trước kiểm thử DB được duyệt.
+- **Kết quả:** **APPROVED_BY_PROJECT_OWNER — BUSINESS ONLY**.
 
 ## BIZ-04 — Chờ quyết định
 
@@ -42,7 +46,7 @@ Trả một phần, chống over-return, chỉ COMMIT một lần, idempotency r
 
 ## Giới hạn phê duyệt và cổng tiếp theo
 
-- BIZ-01, BIZ-02 được chủ dự án phê duyệt qua hội thoại, **không phải quyết định DBA** hoặc phê duyệt thực thi SQL; chưa kiểm tra danh tính bằng kênh xác thực độc lập ngoài hội thoại.
-- BIZ-03…05 cần phê duyệt tường minh, không dựa vào câu “đồng ý” chung.
+- BIZ-01, BIZ-02, BIZ-03 được chủ dự án phê duyệt qua hội thoại, **không phải quyết định DBA** hoặc phê duyệt thực thi SQL; chưa kiểm tra danh tính bằng kênh xác thực độc lập ngoài hội thoại.
+- BIZ-04…05 cần phê duyệt tường minh, không dựa vào câu “đồng ý” chung.
 - Người rà soát PostgreSQL/Prisma độc lập phải ký thiết kế theo issue #11. Phê duyệt tạo cluster #12, chạy migration/test DB #13, Supabase staging #21 và release #15 là các cổng riêng.
 - Tiếp tục chỉ tài liệu và kiểm thử offline. Không bật `ACM_RETURN_OPERATIONS_ENABLED=true`, không mở endpoint 503, không chạy SQL/migration, không chỉnh UAT hoặc merge/deploy.
