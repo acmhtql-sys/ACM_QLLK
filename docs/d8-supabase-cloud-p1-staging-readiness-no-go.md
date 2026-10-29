@@ -27,7 +27,7 @@ Prerequisite: SB-P0 Draft PR #19, review-only GitHub CI PASS. Current app source
 |---|---|---|
 | P0 static feasibility + CI | PASS | Existing PR #19 P0 source-only CI, prior Windows/Linux 207/207 mock tests |
 | P1 staging metadata | READ-ONLY REVIEWED | Project name/ref/version/region, public table/migration summary, advisors |
-| P1 URL synthetic unit gate | CI PENDING | 21 synthetic cases and no DB/network writes; attach actual GitHub logs |
+| P1 URL synthetic unit gate | **CI PASS (21/21)** | Job `40876023726/123454920962` success on GitHub Actions; no DB/network writes or secrets |
 | P1 owner/security/DBA decisions | **HOLD** | Exact project ref, accountable operator, budget, region, RBAC/Data API design and approvals |
 | P2 identity and read-only connectivity | **HOLD** | Requires authenticated project approval and scoped connect authorization |
 | P3 DDL/migration on synthetic data | **HOLD** | DBA approved byte-exact SQL/rollback, independent test environment and restore proof |
