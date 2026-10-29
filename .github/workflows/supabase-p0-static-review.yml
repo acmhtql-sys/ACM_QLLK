@@ -1,0 +1,23 @@
+name: ACM Supabase P0 Static Gate (No Cloud Calls)
+on:
+  push:
+    branches:
+      - review/d8-supabase-p0-plan-no-db-20261029
+permissions:
+  contents: read
+jobs:
+  p0-static:
+    name: Static source guards (NO DB)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Inspect source-only Supabase safety guards
+        run: node scripts/d8-supabase-p0-static-check.cjs
+      - name: Check tracked files unchanged
+        run: test -z "$(git status --porcelain --untracked-files=no)"
