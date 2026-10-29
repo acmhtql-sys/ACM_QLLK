@@ -37,7 +37,7 @@ foreach ($kind in $groups.Keys) {
         $lower = $normalized.ToLowerInvariant()
         # Allowlist source-like paths only. Never report sensitive path names.
         $sourceTree = ($lower -match '^(apps|packages|scripts|docs|tests)/' -or $lower -match '^\.github/workflows/')
-        $sourceExt = ($lower -match '\.(ts|tsx|js|jsx|prisma|sql|ps1|json|md|ya?ml)$')
+        $sourceExt = ($lower -match '\.(ts|tsx|js|jsx|prisma|sql|ps1|json|md|txt|ya?ml)$')
         $sensitive = ($lower -match '(^|/)(\.env[^/]*|\.git|node_modules|dist|build|coverage|secrets?|credentials?|private|dumps?|backups?|data)(/|$)' -or
                       $lower -match '(password|token|secret|credential|\.pem$|\.p12$|\.key$|\.sqlite$|\.db$)')
         if (-not $sourceTree -or -not $sourceExt -or $sensitive) { $excludedCount++; continue }
@@ -50,7 +50,7 @@ foreach ($kind in $groups.Keys) {
 }
 $rootPrefix = ([IO.Path]::GetFullPath($root).TrimEnd('\') + '\')
 foreach ($entry in $included.Values) {
-    $full = [IO.Path]::GetFullPath((Join-Path $root $entry.path.Replace('/','\')))
+    $full = [IO.Path]::GetFullPath((Join-Path -Path $root -ChildPath ($entry.path.Replace('/','\'))))
     if (-not $full.StartsWith($rootPrefix, [StringComparison]::OrdinalIgnoreCase)) { throw 'PATH_OUTSIDE_REPOSITORY' }
     if (-not (Test-Path -LiteralPath $full -PathType Leaf)) { continue }
     $file = Get-Item -LiteralPath $full -Force
