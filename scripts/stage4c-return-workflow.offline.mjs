@@ -45,11 +45,12 @@ test('WF-06 second RECEIVE cannot replace receiver identity',()=>{
 test('WF-07 second VERIFY cannot replace verifier identity',()=>{
   rejects(()=>planReturnTransition(verify(receive(start())),{action:'VERIFY',actor:admin}),'STATE_CONFLICT');
 });
-test('WF-08 CANCEL before COMMIT needs reason and does not change lines',()=>{
+test('WF-08 CANCEL after RECEIVE requires reconciliation and keeps custody',()=>{
   const s=receive(start());
   rejects(()=>planReturnTransition(s,{action:'CANCEL',actor:manager,reason:'  '}),'CANCEL_REASON_REQUIRED');
   const result=planReturnTransition(s,{action:'CANCEL',actor:manager,reason:'  reason  '});
-  assert.equal(result.next.status,'CANCELLED'); assert.equal(result.next.cancelReason,'reason');
+  assert.equal(result.next.status,'RECONCILIATION_REQUIRED'); assert.equal(result.next.cancelReason,'reason');
+  assert.equal(result.next.custody.receivedById,tech.id); assert.equal(result.cancellationAvailableStockDelta,0);
   assert.deepEqual(result.next.lines,s.lines); assert.equal(result.event,'CANCEL_REQUESTED');
   rejects(()=>planReturnTransition(result.next,{action:'COMMIT',actor:admin,lockedBorrowDetails}),'STATE_CONFLICT');
 });
