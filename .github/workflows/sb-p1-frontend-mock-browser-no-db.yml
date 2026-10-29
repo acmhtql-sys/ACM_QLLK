@@ -1,0 +1,90 @@
+# ACM SB-P1 UI verification. Explicit 1-file Playwright allowlist; no backend/DB.
+name: ACM SB-P1 Frontend Mock Browser CI (NO DB)
+
+on:
+  push:
+    branches:
+      - review/d8-sb-p1-ui-mock-ci-no-db-20261029
+
+permissions:
+  contents: read
+
+concurrency:
+  group: acm-sb-p1-mock-ui-20261029
+  cancel-in-progress: true
+
+jobs:
+  mock-browser:
+    name: React RBAC + Borrow/Return mock UI (NO DB)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      CI: 'true'
+      ACM_UI_LIVE: 'false'
+      ACM_RETURN_OPERATIONS_ENABLED: 'false'
+      VITE_API_BASE_URL: http://127.0.0.1:1/api/v1
+    steps:
+      - name: Checkout exact review branch without credentials
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Verify P1 review baseline and mock-only test scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = 'refs/heads/review/d8-sb-p1-ui-mock-ci-no-db-20261029'
+          git merge-base --is-ancestor '473a73a6a796b19c3c3e9a2490106b2c5ffb2bcc' HEAD
+          test "$ACM_UI_LIVE" = 'false'
+          test "$ACM_RETURN_OPERATIONS_ENABLED" = 'false'
+          test "$VITE_API_BASE_URL" = 'http://127.0.0.1:1/api/v1'
+          test -z "${DATABASE_URL:-}"
+          test -z "${SHADOW_DATABASE_URL:-}"
+          test -z "${ACM_SUPABASE_CANDIDATE_DB_URL:-}"
+          test ! -e apps/api/.env.test
+          test "$(git hash-object apps/web/playwright/phase11.roles.spec.ts)" = 'c5d88c9146429ba48eb73c69e4acab3470ea3077'
+          test "$(git hash-object apps/web/playwright.config.ts)" = 'f590bf9a91bd1551e415d71cb2c356848494f615'
+          grep -Fq "page.route('**/api/v1/**'" apps/web/playwright/phase11.roles.spec.ts
+          test -f apps/web/playwright/phase11.fullstack.spec.ts
+          echo 'PASS SBP1_UI_ONLY_MOCK_SPEC_PINNED;NO_DB_URL;NO_LIVE_API'
+
+      - name: Install Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install from immutable npm lockfile
+        run: npm ci
+
+      - name: Build shared workspace
+        run: npm run build:shared
+
+      - name: Compile production React bundle with unreachable API endpoint
+        run: npm run build:web
+
+      - name: Install Chromium for fixture-only browser smoke
+        working-directory: apps/web
+        run: npx playwright install --with-deps chromium
+
+      - name: Run ONLY mock role and borrow UI scenarios
+        run: npm run test:e2e:mock --workspace=@acm/web -- playwright/phase11.roles.spec.ts
+
+      - name: Verify no tracked source changes
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -z "$(git status --porcelain --untracked-files=no)"
+          echo 'PASS SBP1_UI_NO_TRACKED_SOURCE_WRITES_NO_DB'
+
+      - name: Preserve fixture-only failed browser evidence
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: acm-sbp1-ui-mock-only-failure
+          path: |
+            apps/web/playwright-report
+            apps/web/test-results
+          if-no-files-found: ignore
+          retention-days: 3
