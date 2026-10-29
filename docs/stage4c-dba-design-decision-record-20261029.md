@@ -16,26 +16,33 @@
 
 1. Prisma-generated diff and 2A both CREATE `borrow_return_operations`. Never concatenate them.
 2. 2A and 2B both CREATE `borrow_return_operations_one_unresolved_per_borrow`. Generated diff omits this index. Require exactly one reviewed partial UNIQUE on borrow for `PREPARED`/`RECONCILIATION_REQUIRED`.
-3. Generated diff `physical_evidence_ref NOT NULL` vs 2A `NULL`; 2B CHECK accepts too broad a format; raw unique is case-sensitive. Approved business direction requires ASCII regex `^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$`, canonical casefold, trusted issuer. Global vs per-borrow unique scope **owner decision pending**; Issue #11 also requires formal regex/issuer signoff.
+3. Generated diff `physical_evidence_ref NOT NULL` vs 2A `NULL`; 2B CHECK accepts too broad a format; raw unique is case-sensitive. Approved business direction requires ASCII regex `^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$`, canonical casefold, trusted issuer. **Owner selected GLOBAL case-insensitive uniqueness** on 2026-10-29 for REVIEW ONLY; Issue #11 still requires formal regex/issuer signoff and DBA index review.
 4. Generated diff has composite receipt-to-borrow FK while 2A has only single-column FK; use verified composite relationship.
 5. 2A/2B have overlapping terminal-state/hash CHECK constraints; generated diff has none; consolidate with explicit NULL handling.
 6. Timestamp mismatch: Prisma diff `TIMESTAMP(3)` without timezone, 2A `TIMESTAMPTZ` and a different `updated_at` default.
 7. No pre-COMMIT `received_by/received_at` and `verified_by/verified_at`; no per-line QC provenance, no LOST incident separation, no durable scoped idempotency/stock posting dedup or atomic writer.
 8. The new HTTP API still returns 503; `ACM_RETURN_OPERATIONS_ENABLED=true` also disables the legacy return writer. **Never toggle flag until independently verified replacement exists.**
 
+## Owner decision update — 2026-10-29 (business design only)
+
+- **DECIDED for REVIEW ONLY:** A physical evidence reference must be globally unique after strict ASCII validation and case-folded canonicalization; `ACM-01` and `acm-01` conflict even across different borrow requests. A proposed PostgreSQL key is `physical_evidence_key` with a global unique constraint/index, **not** a composite per-borrow unique. Do not assume that a plain unique TEXT column or collation enforces it. Durable issuance and collision handling require DBA and security review.
+- **DECIDED for REVIEW ONLY:** When physical RECEIVE has been recorded, a subsequent CANCEL request **must not** immediately set `CANCELLED`. The allowed proposal is `RECONCILIATION_REQUIRED` while preserving receiver and physical custody evidence. A final cancellation requires a separately verified reverse-handover record **or** an approved disposition with independent audit evidence. Neither action implicitly adds to available stock; any later physical inventory adjustment is a distinct authorized stock transaction.
+- **NOT APPROVED:** SQL/migration, Prisma generation against WIP, live database writes, release, seed, Supabase, UAT/DEV mutation, toggling `ACM_RETURN_OPERATIONS_ENABLED`, merge or deploy. A conversation-level business decision is not a DBA/organizational sign-off or permission to execute DB operations.
+- **Design detail still open:** trusted evidence issuer, exact custody disposition approval roles, timestamps, audit linkage, and reversals of existing physical receipt; all are fail-closed until evidenced.
+
 ## Proposed business and data model — requires owner/DBA review
 
 - Continue established workflow `PREPARE -> RECEIVE -> independently VERIFY -> COMMIT -> QC_APPROVE`. Persist server-authenticated receiver/verifier actor IDs and timestamps separately, immutable audit event per action. PREPARE/RECEIVE roles: ADMIN/LAB_MANAGER/TECHNICIAN; VERIFY/COMMIT/QC/CANCEL: ADMIN/LAB_MANAGER; receiver cannot verify own receipt.
-- Persist original physical evidence ref and canonical ASCII comparison key. DBA chooses one unique index scope based on owner signoff.
+- Persist original physical evidence ref and canonical ASCII comparison key. Owner selected **GLOBAL case-insensitive** key (e.g., uniqueness on canonical ASCII uppercased value, not `(borrow_id, key)`); DBA must verify index/collation, historical collisions, and issuer provenance before approval.
 - Add physical ReturnOperationLine records for only GOOD/DAMAGED quantities, quarantine-first; QC release only GOOD after COMMIT, with per-line actor/time and durable release dedup. LOST goes to separate incident workflow, never a fictitious physical receipt.
 - Retain existing `PREPARED`, `RECONCILIATION_REQUIRED`, `COMPLETED`, `CANCELLED` states unless independently approved to change; RECEIVE and VERIFY as durable sub-events before COMMIT.
 - Idempotency contract: scoped `(borrowId, requestKey)`, payload SHA-256, actor permission and at least 365 days retained metadata; committed receipt/stock dedup must survive TTL. Current generic `IdempotencyRecord.key @unique` cannot by itself prove this.
 - Shared lock-first Serializable transaction covering borrow, details, operation/replay, balances, assets, receipt and audit; locked outstanding quantities must be read from DB rather than trusted HTTP payload. Legacy writer must obey the same lock order.
-- **CANCEL after physical RECEIVE is unresolved:** conservative design proposal moves to `RECONCILIATION_REQUIRED`, holds custody, requires approved reverse-handover or holding-record disposition before final CANCEL, and never adds stock to available automatically. This is only a proposal, not owner approval.
+- **CANCEL after physical RECEIVE is APPROVED as business policy, DESIGN ONLY**: transition to `RECONCILIATION_REQUIRED`, retain recorded custody; only after approved reverse-handover evidence or an authorized disposition decision may the operation become `CANCELLED`; no automatic increment to available stock. Actual custody model, evidence authentication, roles and schema must still pass security/DBA review.
 
 ## Approvals and test gates (all OPEN beyond static evidence)
 
-- **G1 Owner:** evidence code regex and issuer policy; uniqueness GLOBAL vs PER_BORROW; custody/disposition after RECEIVE then CANCEL. Record accountable approver/date/evidence on [#11](https://github.com/acmhtql-sys/ACM_QLLK/issues/11).
+- **G1 Owner:** owner approved GLOBAL case-insensitive uniqueness and post-RECEIVE reconciliation-only cancellation in this project conversation on 2026-10-29, REVIEW ONLY. The proposed ASCII regex is used as the current BIZ-01 design, while **formal documented issuer/regex signoff and organizational approval evidence remain open**. Record accountable approver/date/evidence on [#11](https://github.com/acmhtql-sys/ACM_QLLK/issues/11).
 - **G2 DBA:** one consolidated matching Prisma/schema PostgreSQL migration design, CHECK/partial unique/FK, timestamp, UUID, drift, data preflight, forward and guarded rollback. Design approval is not authorization to execute.
 - **G3 Backend:** implement and peer-review authenticated return writer, QC, incident, atomic movement, tests, legacy compatibility.
 - **G4 PG17 isolated authorization:** separate DB sandbox permission (#12/#13), synthetic fixture, negative constraints, 2-session races, fault-injection rollback, backup and independent restore.
