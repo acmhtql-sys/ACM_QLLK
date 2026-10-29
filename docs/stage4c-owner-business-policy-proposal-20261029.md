@@ -1,6 +1,6 @@
 # ACM — Đăng ký quyết định nghiệp vụ Stage4C
 
-**Trạng thái 2026-10-29:** BIZ-01, BIZ-02 và BIZ-03 **OWNER APPROVED — BUSINESS ONLY**; BIZ-04…05 **AWAITING OWNER DECISION**. Không phải phê duyệt DBA, migration, ghi Supabase hoặc release GO.
+**Trạng thái 2026-10-29:** BIZ-01, BIZ-02, BIZ-03 và BIZ-04 **OWNER APPROVED — BUSINESS ONLY**; BIZ-05 **AWAITING OWNER DECISION**. Không phải phê duyệt DBA, migration, ghi Supabase hoặc release GO.
 
 Nguồn mã kiểm tra: UAT Stage4C 9-file ZIP SHA-256 `938479d53afa7f16b2923bbf9611b4480957c19ce24d835b84d19c59d5fc332a`. Hồ sơ DBA: `docs/stage4c-business-dba-signoff-draft-20261029.md`.
 
@@ -21,7 +21,7 @@ Nguồn mã kiểm tra: UAT Stage4C 9-file ZIP SHA-256 `938479d53afa7f16b2923bbf
 - **Nhân viên tiếp nhận xác nhận nhận thiết bị thực tế** bằng thao tác có ghi chứng cứ, người thực hiện và thời điểm.
 - **Một người khác, có thẩm quyền, xác minh độc lập** chứng từ và xác nhận tiếp nhận **trước COMMIT**; không cho người tiếp nhận tự làm người xác minh của cùng lần bàn giao.
 - Các yêu cầu triển khai *suy ra cần review*: lưu mã, nguồn do ACM cấp, phiếu mượn liên quan, danh tính/role của hai người, dấu thời gian, chứng cứ và nhật ký audit; authorization phải kiểm tra từ server, không tin cờ xác nhận do frontend tự gửi.
-- Vai trò cụ thể ADMIN / LAB_MANAGER / TECHNICIAN và quy tắc COMMIT/CANCEL sẽ chốt ở **BIZ-04**, chưa mặc định phê duyệt.
+- Vai trò cụ thể và quyền COMMIT/CANCEL đã được chốt tại **BIZ-04** bên dưới.
 - Kết quả: **APPROVED_BY_PROJECT_OWNER — BUSINESS ONLY**.
 
 ## BIZ-03 — Đã phê duyệt phương án B (cách ly trước, kiểm tra sau)
@@ -33,12 +33,28 @@ Nguồn mã kiểm tra: UAT Stage4C 9-file ZIP SHA-256 `938479d53afa7f16b2923bbf
 - **DAMAGED:** tiếp tục cách ly và không tăng tồn khả dụng, chờ xử lý/bảo trì/loại bỏ theo chính sách chưa chốt.
 - **LOST:** ghi biên bản thất lạc riêng; không giả lập việc nhận thiết bị vật lý, không tăng tồn khả dụng; cơ chế điều chỉnh borrowed/onHand/Asset và bồi thường cần quy tắc nghiệp vụ, kế toán và review kỹ thuật riêng.
 - **Điều kiện phối hợp BIZ-02:** tiếp nhận thực tế và người khác xác minh độc lập trước COMMIT; với LOST, không thể thực hiện xác nhận “đã nhận vật lý” cho vật bị mất — cần luồng sự cố riêng, không dùng COMMIT nhận hàng giả.
-- **Phần chưa chốt:** ai kiểm tra/duyệt chất lượng (BIZ-04), ai phê duyệt xử lý hỏng/mất, số học StockBalance (onHand/quarantined/borrowed/available) và chuyển trạng thái serial/Asset. Không tự áp đặt SQL hoặc cập nhật stock trước kiểm thử DB được duyệt.
+- **Phần chưa chốt:** quy trình phê duyệt xử lý hỏng/mất ngoài duyệt chất lượng thông thường, số học StockBalance (onHand/quarantined/borrowed/available) và chuyển trạng thái serial/Asset. Không tự áp đặt SQL hoặc cập nhật stock trước kiểm thử DB được duyệt.
 - **Kết quả:** **APPROVED_BY_PROJECT_OWNER — BUSINESS ONLY**.
 
-## BIZ-04 — Chờ quyết định
+## BIZ-04 — Đã phê duyệt phương án A (phân nhiệm chặt chẽ)
 
-Ai được PREPARE, CONFIRM_RECEIPT, VERIFY, COMMIT, CANCEL; ma trận role và separation of duties phải thống nhất BIZ-02. Cần lưu actor/timestamp/audit. Chưa phê duyệt.
+**Chủ dự án phê duyệt ngày 2026-10-29:** “Tôi chọn và phê duyệt BIZ-04 phương án A: ADMIN, LAB_MANAGER, TECHNICIAN được PREPARE và xác nhận tiếp nhận; chỉ ADMIN hoặc LAB_MANAGER được VERIFY độc lập, COMMIT, duyệt kiểm tra chất lượng và CANCEL trước COMMIT có lý do. Người VERIFY phải khác người RECEIVE, ghi đầy đủ audit.”
+
+| Hành động | ADMIN | LAB_MANAGER | TECHNICIAN | STUDENT |
+|---|---|---|---|---|
+| PREPARE | Cho phép | Cho phép | Cho phép | Không |
+| CONFIRM_RECEIPT / RECEIVE (xác nhận đã nhận vật lý) | Cho phép | Cho phép | Cho phép | Không |
+| VERIFY độc lập | Cho phép nếu khác người RECEIVE | Cho phép nếu khác người RECEIVE | Không | Không |
+| COMMIT (chỉ sau VERIFY hợp lệ) | Cho phép | Cho phép | Không | Không |
+| Duyệt kết quả kiểm tra chất lượng / đưa GOOD vào khả dụng | Cho phép | Cho phép | Không | Không |
+| CANCEL trước COMMIT, có lý do bắt buộc | Cho phép | Cho phép | Không | Không |
+
+- **Bắt buộc tách người:** tài khoản VERIFY phải khác tài khoản RECEIVE của cùng chứng từ; nếu thiếu xác nhận tiếp nhận hoặc xác minh độc lập, COMMIT phải bị từ chối. Không được chỉ kiểm tra role mà bỏ kiểm tra hai danh tính khác nhau.
+- **Audit:** ghi tài khoản/role người thao tác, chứng từ/phiếu mượn liên quan, hành động, thời điểm, trạng thái trước/sau và lý do CANCEL. Không để frontend cung cấp danh tính được tin cậy thay cho server-authenticated actor.
+- **BIZ-03 vẫn áp dụng:** COMMIT nhận hàng không tự chuyển tồn khả dụng; thiết bị thực nhận phải cách ly chờ kiểm tra, GOOD chỉ khả dụng sau khi ADMIN hoặc LAB_MANAGER duyệt chất lượng; DAMAGED vẫn cách ly, LOST là luồng biên bản sự cố, không giả làm nhận vật lý.
+- **Yêu cầu kiểm thử:** deny TECHNICIAN/ STUDENT VERIFY/COMMIT/CANCEL/QC; deny cùng người RECEIVE+VERIFY kể cả ADMIN; deny COMMIT thiếu VERIFY; deny CANCEL sau COMMIT; ghi audit kể cả từ chối nghiệp vụ thích hợp.
+- **Chưa chốt về kỹ thuật:** cách triển khai workflow và giới hạn concurrency, khóa/quyền cấp ở Backend, Prisma/DDL, migration, HTTP contract. Chưa chạy DB hoặc mở endpoint 503.
+- **Kết quả:** **APPROVED_BY_PROJECT_OWNER — BUSINESS ONLY**.
 
 ## BIZ-05 — Chờ quyết định
 
@@ -46,7 +62,7 @@ Trả một phần, chống over-return, chỉ COMMIT một lần, idempotency r
 
 ## Giới hạn phê duyệt và cổng tiếp theo
 
-- BIZ-01, BIZ-02, BIZ-03 được chủ dự án phê duyệt qua hội thoại, **không phải quyết định DBA** hoặc phê duyệt thực thi SQL; chưa kiểm tra danh tính bằng kênh xác thực độc lập ngoài hội thoại.
-- BIZ-04…05 cần phê duyệt tường minh, không dựa vào câu “đồng ý” chung.
+- BIZ-01, BIZ-02, BIZ-03, BIZ-04 được chủ dự án phê duyệt qua hội thoại, **không phải quyết định DBA** hoặc phê duyệt thực thi SQL; chưa kiểm tra danh tính bằng kênh xác thực độc lập ngoài hội thoại.
+- BIZ-05 cần phê duyệt tường minh, không dựa vào câu “đồng ý” chung.
 - Người rà soát PostgreSQL/Prisma độc lập phải ký thiết kế theo issue #11. Phê duyệt tạo cluster #12, chạy migration/test DB #13, Supabase staging #21 và release #15 là các cổng riêng.
 - Tiếp tục chỉ tài liệu và kiểm thử offline. Không bật `ACM_RETURN_OPERATIONS_ENABLED=true`, không mở endpoint 503, không chạy SQL/migration, không chỉnh UAT hoặc merge/deploy.
