@@ -43,7 +43,7 @@ jobs:
           test -z "${SHADOW_DATABASE_URL:-}"
           test -z "${ACM_SUPABASE_CANDIDATE_DB_URL:-}"
           test ! -e apps/api/.env.test
-          test "$(git hash-object apps/web/playwright/phase11.roles.spec.ts)" = 'c5d88c9146429ba48eb73c69e4acab3470ea3077'
+          test "$(git hash-object apps/web/playwright/phase11.roles.spec.ts)" = '5571ef2459e381669ef6f0682bc82b17ea11eda4'
           test "$(git hash-object apps/web/playwright.config.ts)" = 'f590bf9a91bd1551e415d71cb2c356848494f615'
           grep -Fq "page.route('**/api/v1/**'" apps/web/playwright/phase11.roles.spec.ts
           test -f apps/web/playwright/phase11.fullstack.spec.ts
