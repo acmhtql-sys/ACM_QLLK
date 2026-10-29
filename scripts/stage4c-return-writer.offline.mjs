@@ -207,7 +207,9 @@ test('PORT-10 self-verification, STUDENT and scoped access blocked inside TX',as
   f.denyScope(false);
   await receive(f);
   await fails('NOT_AUTHORIZED',()=>run(f,tech,'VERIFY','tech-verify'));
-  await fails('SELF_VERIFICATION',()=>run(f,admin,'VERIFY','self-verify-fake',{}).then(()=>{}).catch(e=>{throw e;}));
+  const g=fakeWriter();
+  await run(g,admin,'RECEIVE','admin-received');
+  await fails('SELF_VERIFICATION',()=>run(g,admin,'VERIFY','admin-self-verify'));
 });
 test('PORT-11 denies HTTP attempts to inject actor, trusted proof, lost, or locked details',async()=>{
   const f=fakeWriter();
