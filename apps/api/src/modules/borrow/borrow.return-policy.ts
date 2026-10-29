@@ -173,3 +173,117 @@ export const MIN_IDEMPOTENCY_RETENTION_DAYS = 365;
 export function assertIdempotencyRetentionDays(days: number): void {
   if (!Number.isSafeInteger(days) || days < MIN_IDEMPOTENCY_RETENTION_DAYS) deny('INVALID_RETENTION');
 }
+
+// Stage4C pure workflow transition planner.
+// NO DATABASE: proposals do NOT persist receipts, inventory movement or audit.
+// The real writer MUST authenticate caller, lock/load trusted data and recheck
+// in the SAME approved Serializable transaction before posting anything.
+
+export interface WorkflowLine {
+  readonly borrowDetailId: string;
+  readonly quantity: number;
+  readonly condition: Exclude<ReturnCondition, 'LOST'>;
+  readonly qualityReleased: boolean;
+}
+export interface ReturnWorkflowSnapshot extends TrustedReturnState {
+  /** Physically received goods; LOST is never represented as received. */
+  readonly lines: readonly WorkflowLine[];
+  readonly cancelReason?: string | null;
+}
+export type ReturnWorkflowCommand =
+  | { readonly action: 'RECEIVE'; readonly actor: ReturnActor }
+  | { readonly action: 'VERIFY'; readonly actor: ReturnActor }
+  | { readonly action: 'COMMIT'; readonly actor: ReturnActor; readonly lockedBorrowDetails: readonly BorrowedDetail[] }
+  | { readonly action: 'CANCEL'; readonly actor: ReturnActor; readonly reason: string }
+  | { readonly action: 'QC_APPROVE'; readonly actor: ReturnActor; readonly borrowDetailIds: readonly string[] };
+
+export interface ReturnWorkflowPlan {
+  readonly next: ReturnWorkflowSnapshot;
+  readonly actorId: string;
+  readonly event: 'PHYSICAL_RECEIPT_CONFIRMED' | 'INDEPENDENTLY_VERIFIED' |
+    'COMMIT_REQUESTED' | 'CANCEL_REQUESTED' | 'QUALITY_RELEASE_REQUESTED';
+  /** Plan-only, NOT evidence that a transaction or audit entry was written. */
+  readonly requiresAtomicDatabaseWrite: true;
+}
+function stateConflict(): never { throw new ReturnPolicyError('STATE_CONFLICT'); }
+function invalidLine(): never { throw new ReturnPolicyError('INVALID_QUANTITY'); }
+
+function assertCoherentSnapshot(s: ReturnWorkflowSnapshot): void {
+  if (!s || !Array.isArray(s.lines) || s.lines.length === 0) invalidLine();
+  const seen = new Set<string>();
+  for (const l of s.lines) {
+    if (!l || typeof l.borrowDetailId !== 'string' || !l.borrowDetailId.trim() ||
+        seen.has(l.borrowDetailId) || !Number.isSafeInteger(l.quantity) || l.quantity <= 0 ||
+        (l.condition !== 'GOOD' && l.condition !== 'DAMAGED') || typeof l.qualityReleased !== 'boolean') invalidLine();
+    seen.add(l.borrowDetailId);
+    if (l.qualityReleased && (l.condition !== 'GOOD' || s.status !== 'COMPLETED')) stateConflict();
+  }
+  if (typeof s.physicallyReceived !== 'boolean' || typeof s.independentlyVerified !== 'boolean') stateConflict();
+  if (s.physicallyReceived !== (typeof s.receiverId === 'string' && s.receiverId.trim().length > 0)) stateConflict();
+  if (s.independentlyVerified !== (typeof s.verifierId === 'string' && s.verifierId.trim().length > 0)) stateConflict();
+  if (s.independentlyVerified && (!s.physicallyReceived || s.receiverId === s.verifierId)) stateConflict();
+  if (s.status === 'COMPLETED' && !s.independentlyVerified) stateConflict();
+  if (s.status === 'CANCELLED' && s.lines.some(l => l.qualityReleased)) stateConflict();
+}
+
+/**
+ * Generate a proposed transition from trusted persisted state and actor.
+ * Never accept an actor, evidence or lockedBorrowDetails directly from HTTP.
+ * This helper does not enforce DB uniqueness, retain idempotency records,
+ * authenticate evidence provenance, or guarantee atomic commit.
+ */
+export function planReturnTransition(
+  snapshot: ReturnWorkflowSnapshot,
+  command: ReturnWorkflowCommand,
+): ReturnWorkflowPlan {
+  assertCoherentSnapshot(snapshot);
+  if (!command || typeof command !== 'object') stateConflict();
+  const reason = command.action === 'CANCEL' ? command.reason : undefined;
+  assertReturnActionAllowed(command.action, command.actor, snapshot, reason);
+  const common = { actorId: command.actor.id, requiresAtomicDatabaseWrite: true as const };
+  switch (command.action) {
+    case 'RECEIVE':
+      // Prevent replacing the receiver's identity when one already confirmed.
+      if (snapshot.physicallyReceived || snapshot.receiverId) stateConflict();
+      return { ...common, event: 'PHYSICAL_RECEIPT_CONFIRMED', next: {
+        ...snapshot, physicallyReceived: true, receiverId: command.actor.id,
+      } };
+    case 'VERIFY':
+      if (snapshot.verifierId || snapshot.independentlyVerified) stateConflict();
+      return { ...common, event: 'INDEPENDENTLY_VERIFIED', next: {
+        ...snapshot, independentlyVerified: true, verifierId: command.actor.id,
+      } };
+    case 'COMMIT':
+      // MUST be read under the same DB locks and within the same transaction
+      // where the durable stock + receipt + Asset + audit posting will occur.
+      assertPhysicalReturnQuantities(command.lockedBorrowDetails, snapshot.lines.map(l => ({
+        borrowDetailId: l.borrowDetailId, returnedQuantity: l.quantity, condition: l.condition,
+      })));
+      // This changes only the *proposed* status. NO real DB write occurs.
+      return { ...common, event: 'COMMIT_REQUESTED', next: {
+        ...snapshot, status: 'COMPLETED',
+      } };
+    case 'CANCEL':
+      return { ...common, event: 'CANCEL_REQUESTED', next: {
+        ...snapshot, status: 'CANCELLED', cancelReason: command.reason.trim(),
+      } };
+    case 'QC_APPROVE': {
+      if (!Array.isArray(command.borrowDetailIds) || command.borrowDetailIds.length === 0) invalidLine();
+      const approved = new Set<string>();
+      const lines = snapshot.lines.map(l => ({ ...l }));
+      for (const id of command.borrowDetailIds) {
+        if (typeof id !== 'string' || approved.has(id)) invalidLine();
+        approved.add(id);
+        const line = lines.find(l => l.borrowDetailId === id);
+        if (!line) invalidLine();
+        if (line.condition !== 'GOOD' || line.qualityReleased) stateConflict();
+        line.qualityReleased = true;
+      }
+      return { ...common, event: 'QUALITY_RELEASE_REQUESTED', next: {
+        ...snapshot, lines,
+      } };
+    }
+    default:
+      return stateConflict();
+  }
+}

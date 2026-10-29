@@ -1,0 +1,44 @@
+name: Stage4C offline policy checks (no DB)
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'apps/api/src/modules/borrow/borrow.return-policy.ts'
+      - 'scripts/stage4c-return-policy.offline.mjs'
+      - 'scripts/stage4c-return-workflow.offline.mjs'
+      - '.github/workflows/stage4c-offline-policy.yml'
+  push:
+    branches:
+      - 'feat/stage4c-transition-planner-*'
+      - 'feat/stage4c-policy-offline-*'
+    paths:
+      - 'apps/api/src/modules/borrow/borrow.return-policy.ts'
+      - 'scripts/stage4c-return-policy.offline.mjs'
+      - 'scripts/stage4c-return-workflow.offline.mjs'
+      - '.github/workflows/stage4c-offline-policy.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  policy-only:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout source (read only)
+        uses: actions/checkout@v4
+      - name: Node.js pinned for type stripping
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+      - name: Assert no application or database integration
+        run: |
+          test -f apps/api/src/modules/borrow/borrow.return-policy.ts
+          test -f scripts/stage4c-return-policy.offline.mjs
+          test -f scripts/stage4c-return-workflow.offline.mjs
+      - name: Pure policy and workflow tests (no npm install, no DB)
+        run: |
+          node --experimental-strip-types --test \
+            scripts/stage4c-return-policy.offline.mjs \
+            scripts/stage4c-return-workflow.offline.mjs
