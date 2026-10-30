@@ -52,6 +52,16 @@ test('DDL-08 post-RECEIVE CANCEL keeps custody until separate resolution',()=>{
     'received_at IS NULL OR custody_resolution_id IS NOT NULL',
     'return_ops_own_custody_resolution_fk');
 });
+test('DDL-16 post-RECEIVE reconciliation can finalize with approved custody reference',()=>{
+  const start=sql.indexOf('CONSTRAINT return_ops_post_receive_cancel_chk CHECK');
+  const end=sql.indexOf('CONSTRAINT return_ops_id_borrow_unique',start);
+  assert.ok(start>=0 && end>start);
+  const rule=sql.slice(start,end);
+  assert.match(rule,/state = 'RECONCILIATION_REQUIRED'/);
+  assert.match(rule,/state = 'CANCELLED' AND custody_resolution_id IS NOT NULL/);
+  assert.match(rule,/received_at IS NOT NULL AND cancel_requested_at IS NOT NULL/);
+  assert.match(document,/preserving the original reconciliation reason/);
+});
 test('DDL-09 custody resolution must contain approved actor and evidence',()=>{
   has('CREATE TABLE public.return_custody_resolutions',
     'REVERSE_HANDOVER','APPROVED_DISPOSITION',
