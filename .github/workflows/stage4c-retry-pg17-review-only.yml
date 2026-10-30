@@ -1,0 +1,40 @@
+name: Stage4C retry + PG17 approval handoff (OFFLINE ONLY)
+on:
+  push:
+    branches:
+      - review/stage4c-retry-pg17-readiness-20261030
+    paths:
+      - apps/api/src/modules/borrow/borrow.return-transaction-retry.ts
+      - scripts/stage4c-transaction-retry.offline.mjs
+      - docs/stage4c-pg17-dba-signoff-handoff-20261030.md
+      - .github/workflows/stage4c-retry-pg17-review-only.yml
+  pull_request:
+    paths:
+      - apps/api/src/modules/borrow/borrow.return-transaction-retry.ts
+      - scripts/stage4c-transaction-retry.offline.mjs
+      - docs/stage4c-pg17-dba-signoff-handoff-20261030.md
+      - .github/workflows/stage4c-retry-pg17-review-only.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  retry-safety:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      CI: 'true'
+      ACM_RETURN_OPERATIONS_ENABLED: 'false'
+      ACM_UI_LIVE: 'false'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Install exact locked dependencies without lifecycle scripts
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Strict typecheck pure Stage4C ports and retry contract
+        run: ./node_modules/.bin/tsc --noEmit --strict --target ES2022 --module NodeNext --moduleResolution NodeNext --allowImportingTsExtensions --esModuleInterop --skipLibCheck --types node apps/api/src/modules/borrow/borrow.return-policy.ts apps/api/src/modules/borrow/borrow.return-writer.contract.ts apps/api/src/modules/borrow/borrow.return-prepare.contract.ts apps/api/src/modules/borrow/borrow.return-transaction-retry.ts
+      - name: Run pure offline Node tests, including rollback-only retry cases
+        run: node --experimental-strip-types --test scripts/stage4c-return-policy.offline.mjs scripts/stage4c-return-workflow.offline.mjs scripts/stage4c-owner-decisions.offline.mjs scripts/stage4c-return-writer.offline.mjs scripts/stage4c-return-prepare.offline.mjs scripts/stage4c-transaction-retry.offline.mjs
