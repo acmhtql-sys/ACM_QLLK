@@ -1,0 +1,32 @@
+name: Stage4C consolidated DDL design static review (NO DB)
+on:
+  push:
+    branches:
+      - review/stage4c-consolidated-ddl-candidate-20261030
+    paths:
+      - docs/stage4c-consolidated-forward-ddl-candidate-20261030.md
+      - scripts/stage4c-consolidated-ddl.static-review.test.mjs
+      - .github/workflows/stage4c-consolidated-ddl-static-review.yml
+  pull_request:
+    paths:
+      - docs/stage4c-consolidated-forward-ddl-candidate-20261030.md
+      - scripts/stage4c-consolidated-ddl.static-review.test.mjs
+      - .github/workflows/stage4c-consolidated-ddl-static-review.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  design-document-only:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      ACM_RETURN_OPERATIONS_ENABLED: 'false'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Static acceptance checks ONLY; no SQL parser or database
+        run: node --test scripts/stage4c-consolidated-ddl.static-review.test.mjs
