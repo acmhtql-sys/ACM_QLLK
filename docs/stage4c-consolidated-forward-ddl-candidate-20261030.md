@@ -103,10 +103,11 @@ CREATE TABLE public.borrow_return_operations (
        AND cancelled_at IS NULL AND custody_resolution_id IS NULL)),
   CONSTRAINT return_ops_post_receive_cancel_chk CHECK
     (reconciliation_reason IS DISTINCT FROM 'POST_RECEIPT_CANCEL' OR
-      (state = 'RECONCILIATION_REQUIRED'
-       AND received_at IS NOT NULL AND cancel_requested_at IS NOT NULL
+      (received_at IS NOT NULL AND cancel_requested_at IS NOT NULL
        AND cancel_reason IS NOT NULL
-       AND NULLIF(btrim(cancel_reason),'') IS NOT NULL)),
+       AND NULLIF(btrim(cancel_reason),'') IS NOT NULL
+       AND (state = 'RECONCILIATION_REQUIRED' OR
+            (state = 'CANCELLED' AND custody_resolution_id IS NOT NULL)))),
   CONSTRAINT return_ops_id_borrow_unique UNIQUE (id, borrow_request_id),
   CONSTRAINT return_ops_receipt_same_borrow_fk FOREIGN KEY
     (return_transaction_id, borrow_request_id)
@@ -230,10 +231,11 @@ CREATE TABLE public.return_loss_incidents (
 2. **Important missing enforcement:** global registry immutability, issuer ownership/purpose consistency, custody proof authenticity and independent approver, per-line QC only after committed return, consistency of status transitions and audit events, row-level authorization, duplicate stock movement prevention outside posting table, and asset serial lifecycle require **separate, carefully audited DB/service checks**. This is not a production-safe migration by itself.
 3. **Legacy writer compatibility:** original `StockMovement` has `quantityDelta`, `onHandBefore/After` but not separate `quarantined` deltas. Return ledger and `StockBalance` movement rules, including no accidental double counting of `onHand` vs `quarantined`, must be specified and tested with current legacy flow. An operation-level posting record alone is NOT a full accounting ledger.
 4. **Prisma target schema is not updated** by this draft. DB-aware Prisma types, inverse relations, `@db.Timestamptz(3)` mapping and any manual index/constraint drift must be reconciled after DBA approval.
-5. **Cancellation evidence scope:** one custody resolution per operation is a proposed minimum; if multiple handovers/dispositions are required, the DBA must revise to an immutable event log and final approved-resolution reference before GO. Reconciliation reasons include uncertain transactions **without** a physical RECEIVE; do not assert all reconciliations imply custody.
-6. **Default privilege model:** application role must not be able to delete/rewrite immutable evidence/stock/audit rows; explicit grant and audited trigger controls pending. SQL `UNIQUE` prevents duplicates only while registry rows remain present.
-7. **Negative preflight:** legacy evidence spelling and cross-issuer existing records must be scanned with approved privacy-safe access before declaring global uniqueness compatible. Do not infer an empty database from 0 public tables or other cloud metadata.
-8. **Structural DDL is untested:** no PostgreSQL parser, `psql` or migration runner was invoked; all syntax/transaction semantics remain subject to DBA and isolated PG17 proof.
+5. **Cancellation transition correction:** A POST_RECEIPT_CANCEL reconciliation must be allowed to reach terminal CANCELLED after an approved custody resolution, while preserving the original reconciliation reason. A CHECK restricting POST_RECEIPT_CANCEL exclusively to RECONCILIATION_REQUIRED would make lawful finalization impossible. The candidate CHECK now allows precisely the reconciled or resolved-terminal branch; cross-table approver authenticity still needs service/DBA enforcement.
+6. **Cancellation evidence scope:** one custody resolution per operation is a proposed minimum; if multiple handovers/dispositions are required, the DBA must revise to an immutable event log and final approved-resolution reference before GO. Reconciliation reasons include uncertain transactions **without** a physical RECEIVE; do not assert all reconciliations imply custody.
+7. **Default privilege model:** application role must not be able to delete/rewrite immutable evidence/stock/audit rows; explicit grant and audited trigger controls pending. SQL `UNIQUE` prevents duplicates only while registry rows remain present.
+8. **Negative preflight:** legacy evidence spelling and cross-issuer existing records must be scanned with approved privacy-safe access before declaring global uniqueness compatible. Do not infer an empty database from 0 public tables or other cloud metadata.
+9. **Structural DDL is untested:** no PostgreSQL parser, `psql` or migration runner was invoked; all syntax/transaction semantics remain subject to DBA and isolated PG17 proof.
 
 ## Acceptance plan after independent approval (NOT EXECUTED)
 
