@@ -1,14 +1,14 @@
 # ACM Stage4C — SINGLE CONSOLIDATED POSTGRESQL DDL DESIGN CANDIDATE
 
-**30 October 2026 — REVIEW ONLY / UNAPPROVED / DO NOT RUN.** This document contains **illustrative PostgreSQL DDL text** in a Markdown code fence, **not a .sql migration**. It is deliberately outside \`apps/api/prisma/migrations\`. No database was connected or modified while preparing this design. An authorized DBA must reconcile this proposal with migration history, the current catalog, the Prisma schema and all return writers BEFORE producing separately signed forward/rollback SQL.
+**30 October 2026 — REVIEW ONLY / UNAPPROVED / DO NOT RUN.** This document contains **illustrative PostgreSQL DDL text** in a Markdown code fence, **not a .sql migration**. It is deliberately outside `apps/api/prisma/migrations`. No database was connected or modified while preparing this design. An authorized DBA must reconcile this proposal with migration history, the current catalog, the Prisma schema and all return writers BEFORE producing separately signed forward/rollback SQL.
 
-**Source references:** UAT WIP Prisma SHA-256 \`ab5bbdc7f6f1de397740fadb4d5522a59bbb9a819e23dfd658218cc144032fac\`; 2A SQL SHA \`53337db7d3c5e9447f581d2b3b2e6aea4f9df633b347d451ad63dc64657bcb4b\`; 2B SQL SHA \`836f4b4397f0e71b7e0a7da67862c772cd48ee4ec8a6771acf69efeb18c272c6\`; Prisma diff SHA \`90ed5f9333795fdb475771bec2a47f206daffda4f469b89de4616405fe4ae6e2\`. **Do not concatenate any of those three proposals or run this Markdown as SQL.**
+**Source references:** UAT WIP Prisma SHA-256 `ab5bbdc7f6f1de397740fadb4d5522a59bbb9a819e23dfd658218cc144032fac`; 2A SQL SHA `53337db7d3c5e9447f581d2b3b2e6aea4f9df633b347d451ad63dc64657bcb4b`; 2B SQL SHA `836f4b4397f0e71b7e0a7da67862c772cd48ee4ec8a6771acf69efeb18c272c6`; Prisma diff SHA `90ed5f9333795fdb475771bec2a47f206daffda4f469b89de4616405fe4ae6e2`. **Do not concatenate any of those three proposals or run this Markdown as SQL.**
 
 ## Proposed SQL (unexecuted)
 
-The target assumes these legacy tables *exist* as represented by the UAT Prisma schema: \`users(id UUID)\`, \`borrow_requests(id UUID)\`, \`borrow_details(id UUID, "borrowRequestId" UUID)\`, \`return_transactions(id UUID, "borrowRequestId" UUID)\`, \`stock_movements(id UUID)\`. Identifiers and timestamp mappings require live catalog verification after separate approval. All NEW timestamps are proposed as \`TIMESTAMPTZ(3)\`; legacy columns are not altered here. All UUIDs are supplied by the trusted adapter; there is no implicit extension installation.
+The target assumes these legacy tables *exist* as represented by the UAT Prisma schema: `users(id UUID)`, `borrow_requests(id UUID)`, `borrow_details(id UUID, "borrowRequestId" UUID)`, `return_transactions(id UUID, "borrowRequestId" UUID)`, `stock_movements(id UUID)`. Identifiers and timestamp mappings require live catalog verification after separate approval. All NEW timestamps are proposed as `TIMESTAMPTZ(3)`; legacy columns are not altered here. All UUIDs are supplied by the trusted adapter; there is no implicit extension installation.
 
-\`\`\`sql
+```sql
 -- *** DBA REVIEW-ONLY PROPOSAL / NEVER EXECUTED ***
 -- Assumes BASE Prisma schema without borrow_return_operations; do not run
 -- against WIP-migrated databases. No CREATE IF NOT EXISTS: fail on drift.
@@ -222,25 +222,25 @@ CREATE TABLE public.return_loss_incidents (
     REFERENCES public.borrow_details(id,"borrowRequestId") ON DELETE RESTRICT
 );
 -- *** END REVIEW-ONLY DDL PROPOSAL ***
-\`\`\`
+```
 
 ## Hard blockers and explicit limitations
 
-1. **DBA has not approved any of these statements.** The exact existing migration history and live catalog have NOT been inspected under authorized credentials. Do not add this file to \`prisma/migrations\`, run \`prisma migrate dev/deploy\`, \`db push\`, SQL CLI, or enable \`ACM_RETURN_OPERATIONS_ENABLED\`.
+1. **DBA has not approved any of these statements.** The exact existing migration history and live catalog have NOT been inspected under authorized credentials. Do not add this file to `prisma/migrations`, run `prisma migrate dev/deploy`, `db push`, SQL CLI, or enable `ACM_RETURN_OPERATIONS_ENABLED`.
 2. **Important missing enforcement:** global registry immutability, issuer ownership/purpose consistency, custody proof authenticity and independent approver, per-line QC only after committed return, consistency of status transitions and audit events, row-level authorization, duplicate stock movement prevention outside posting table, and asset serial lifecycle require **separate, carefully audited DB/service checks**. This is not a production-safe migration by itself.
-3. **Legacy writer compatibility:** original \`StockMovement\` has \`quantityDelta\`, \`onHandBefore/After\` but not separate \`quarantined\` deltas. Return ledger and \`StockBalance\` movement rules, including no accidental double counting of \`onHand\` vs \`quarantined\`, must be specified and tested with current legacy flow. An operation-level posting record alone is NOT a full accounting ledger.
-4. **Prisma target schema is not updated** by this draft. DB-aware Prisma types, inverse relations, \`@db.Timestamptz(3)\` mapping and any manual index/constraint drift must be reconciled after DBA approval.
+3. **Legacy writer compatibility:** original `StockMovement` has `quantityDelta`, `onHandBefore/After` but not separate `quarantined` deltas. Return ledger and `StockBalance` movement rules, including no accidental double counting of `onHand` vs `quarantined`, must be specified and tested with current legacy flow. An operation-level posting record alone is NOT a full accounting ledger.
+4. **Prisma target schema is not updated** by this draft. DB-aware Prisma types, inverse relations, `@db.Timestamptz(3)` mapping and any manual index/constraint drift must be reconciled after DBA approval.
 5. **Cancellation evidence scope:** one custody resolution per operation is a proposed minimum; if multiple handovers/dispositions are required, the DBA must revise to an immutable event log and final approved-resolution reference before GO. Reconciliation reasons include uncertain transactions **without** a physical RECEIVE; do not assert all reconciliations imply custody.
-6. **Default privilege model:** application role must not be able to delete/rewrite immutable evidence/stock/audit rows; explicit grant and audited trigger controls pending. SQL \`UNIQUE\` prevents duplicates only while registry rows remain present.
+6. **Default privilege model:** application role must not be able to delete/rewrite immutable evidence/stock/audit rows; explicit grant and audited trigger controls pending. SQL `UNIQUE` prevents duplicates only while registry rows remain present.
 7. **Negative preflight:** legacy evidence spelling and cross-issuer existing records must be scanned with approved privacy-safe access before declaring global uniqueness compatible. Do not infer an empty database from 0 public tables or other cloud metadata.
-8. **Structural DDL is untested:** no PostgreSQL parser, \`psql\` or migration runner was invoked; all syntax/transaction semantics remain subject to DBA and isolated PG17 proof.
+8. **Structural DDL is untested:** no PostgreSQL parser, `psql` or migration runner was invoked; all syntax/transaction semantics remain subject to DBA and isolated PG17 proof.
 
 ## Acceptance plan after independent approval (NOT EXECUTED)
 
 - Verify exact SHA-pinned baseline schema and migration directory, DB identity and permissions in a **new approved isolated PostgreSQL 17** only, using synthetic fixtures.
 - Have DBA author one consolidated forward and guarded rollback migration, matching Prisma generated/client types and custom checks; capture execution hash and two independent approvals.
-- Test duplicate \`abc-01\` / \`ABC-01\` issued concurrently in two DB sessions and across distinct borrows/issuer types, and verify no reuse after CANCEL. Test cross-borrow receipt FK, cross-borrow detail FK, same-operation custody resolution, partial unique active state, NULL/CHECK negatives, invalid timestamps and unauthorized roles.
-- Test RECEIVE/VERIFY independence, CANCEL-after-RECEIVE custody and no available credit, completed return/quarantine with GOOD/DAMAGED, QC release only GOOD, LOST as incident, over-return, audit, lost COMMIT response via durable status lookup, repeated request after TTL, fault rollback including \`StockBalance\`, \`StockMovement\` and assets.
+- Test duplicate `abc-01` / `ABC-01` issued concurrently in two DB sessions and across distinct borrows/issuer types, and verify no reuse after CANCEL. Test cross-borrow receipt FK, cross-borrow detail FK, same-operation custody resolution, partial unique active state, NULL/CHECK negatives, invalid timestamps and unauthorized roles.
+- Test RECEIVE/VERIFY independence, CANCEL-after-RECEIVE custody and no available credit, completed return/quarantine with GOOD/DAMAGED, QC release only GOOD, LOST as incident, over-return, audit, lost COMMIT response via durable status lookup, repeated request after TTL, fault rollback including `StockBalance`, `StockMovement` and assets.
 - Backup and restore to independent test DB, then full frontend↔backend↔PG17 E2E, RBAC/IDOR/security and LOCAL release signoffs. Supabase Cloud remains a separate approved phase.
 
 **Current gates:** Owner business decisions for design approved. DBA #11 OPEN. Two human PG17 approval #12 OPEN. SQL test #13 OPEN. LOCAL #15 / #26 NO-GO. Cloud NO-GO.
