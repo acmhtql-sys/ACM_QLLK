@@ -517,7 +517,7 @@ describe('ACM Phase 4 – Borrow & Return Management Test Suite', () => {
             item: { id: itemId, name: 'STM32F401' },
           },
         ],
-        reservations: [{ itemId, locationId }],
+        reservations: [{ itemId, locationId, status: ReservationStatus.FULFILLED }],
       });
 
       mockTx.returnTransaction.findUnique.mockResolvedValue(null);
@@ -614,7 +614,7 @@ describe('ACM Phase 4 – Borrow & Return Management Test Suite', () => {
             item: { id: itemId, name: 'STM32F401' },
           },
         ],
-        reservations: [{ itemId, locationId }],
+        reservations: [{ itemId, locationId, status: ReservationStatus.FULFILLED }],
       });
 
       mockTx.returnTransaction.findUnique.mockResolvedValue(null);
@@ -716,7 +716,7 @@ describe('ACM Phase 4 – Borrow & Return Management Test Suite', () => {
             item: { id: itemId, name: 'STM32F401' },
           },
         ],
-        reservations: [{ itemId, locationId }],
+        reservations: [{ itemId, locationId, status: ReservationStatus.FULFILLED }],
       });
 
       mockTx.returnTransaction.findUnique.mockResolvedValue(null);
@@ -906,7 +906,7 @@ describe('ACM Phase 4 – Borrow & Return Management Test Suite', () => {
             item: { id: itemId, name: 'Arduino Uno R3' },
           },
         ],
-        reservations: [{ itemId, locationId }],
+        reservations: [{ itemId, locationId, status: ReservationStatus.FULFILLED }],
       });
 
       await expect(
@@ -923,6 +923,94 @@ describe('ACM Phase 4 – Borrow & Return Management Test Suite', () => {
           technicianUser
         )
       ).rejects.toThrow('vượt quá số lượng đang mượn còn lại');
+    });
+
+    it('TC-BR-10B: Rejects duplicate detail rows before writing return transaction', async () => {
+      const mockTx = (prisma as any).__mockTx;
+      mockTx.borrowRequest.findUnique.mockResolvedValue({
+        id: borrowRequestId,
+        status: BorrowStatus.HANDED_OVER,
+        details: [{ id: borrowDetailId, itemId, quantity: 2, returnedQuantity: 0, item: { name: 'Arduino Uno R3' } }],
+        reservations: [{ itemId, locationId, status: ReservationStatus.FULFILLED }],
+      });
+
+      await expect(borrowService.returnBorrowRequest(
+        borrowRequestId,
+        { items: [
+          { borrowDetailId, returnedQuantity: 2, condition: AssetCondition.GOOD },
+          { borrowDetailId, returnedQuantity: 2, condition: AssetCondition.DAMAGED },
+        ] },
+        technicianUser
+      )).rejects.toThrow('Không được hoàn trả trùng dòng chi tiết mượn');
+      expect(mockTx.returnTransaction.create).not.toHaveBeenCalled();
+      expect(mockTx.stockBalance.update).not.toHaveBeenCalled();
+    });
+
+    it('TC-BR-10C: Rejects return if borrowed balance at source location is insufficient', async () => {
+      const mockTx = (prisma as any).__mockTx;
+      mockTx.borrowRequest.findUnique.mockResolvedValue({
+        id: borrowRequestId,
+        status: BorrowStatus.HANDED_OVER,
+        details: [{ id: borrowDetailId, itemId, quantity: 2, returnedQuantity: 0, item: { name: 'Arduino Uno R3' } }],
+        reservations: [{ itemId, locationId, status: ReservationStatus.FULFILLED }],
+      });
+      mockTx.returnTransaction.findUnique.mockResolvedValue(null);
+      mockTx.returnTransaction.create.mockResolvedValue({ id: 'rt-1' });
+      mockTx.returnDetail.create.mockResolvedValue({});
+      mockTx.borrowDetail.update.mockResolvedValue({});
+      mockTx.stockBalance.findUnique.mockResolvedValue({ id: 'bal-1', onHand: 5, borrowed: 0 });
+
+      await expect(borrowService.returnBorrowRequest(
+        borrowRequestId,
+        { items: [{ borrowDetailId, returnedQuantity: 2, condition: AssetCondition.GOOD }] },
+        technicianUser
+      )).rejects.toThrow('Tồn kho đang mượn tại kho nguồn không đủ để ghi nhận hoàn trả');
+      expect(mockTx.stockBalance.update).not.toHaveBeenCalled();
+    });
+
+    it('TC-BR-10D: Rejects return to a different warehouse', async () => {
+      const mockTx = (prisma as any).__mockTx;
+      mockTx.borrowRequest.findUnique.mockResolvedValue({
+        id: borrowRequestId,
+        status: BorrowStatus.HANDED_OVER,
+        details: [{ id: borrowDetailId, itemId, quantity: 2, returnedQuantity: 0, item: { name: 'Arduino Uno R3' } }],
+        reservations: [{ itemId, locationId, status: ReservationStatus.FULFILLED }],
+      });
+      mockTx.returnTransaction.findUnique.mockResolvedValue(null);
+      mockTx.returnTransaction.create.mockResolvedValue({ id: 'rt-1' });
+      mockTx.returnDetail.create.mockResolvedValue({});
+      mockTx.borrowDetail.update.mockResolvedValue({});
+
+      await expect(borrowService.returnBorrowRequest(
+        borrowRequestId,
+        { items: [{ borrowDetailId, returnedQuantity: 2, condition: AssetCondition.GOOD, locationId: 'wrong-location-id' }] },
+        technicianUser
+      )).rejects.toThrow('Chưa hỗ trợ trả linh kiện sang kho khác');
+      expect(mockTx.stockBalance.update).not.toHaveBeenCalled();
+    });
+
+    it('TC-BR-10E: Rejects return if source warehouse cannot be uniquely identified', async () => {
+      const mockTx = (prisma as any).__mockTx;
+      mockTx.borrowRequest.findUnique.mockResolvedValue({
+        id: borrowRequestId,
+        status: BorrowStatus.HANDED_OVER,
+        details: [{ id: borrowDetailId, itemId, quantity: 2, returnedQuantity: 0, item: { name: 'Arduino Uno R3' } }],
+        reservations: [
+          { itemId, locationId: 'loc-1', status: ReservationStatus.FULFILLED },
+          { itemId, locationId: 'loc-2', status: ReservationStatus.FULFILLED },
+        ],
+      });
+      mockTx.returnTransaction.findUnique.mockResolvedValue(null);
+      mockTx.returnTransaction.create.mockResolvedValue({ id: 'rt-1' });
+      mockTx.returnDetail.create.mockResolvedValue({});
+      mockTx.borrowDetail.update.mockResolvedValue({});
+
+      await expect(borrowService.returnBorrowRequest(
+        borrowRequestId,
+        { items: [{ borrowDetailId, returnedQuantity: 2, condition: AssetCondition.GOOD }] },
+        technicianUser
+      )).rejects.toThrow('Không thể xác định duy nhất kho nguồn');
+      expect(mockTx.stockBalance.update).not.toHaveBeenCalled();
     });
 
     it('TC-BR-11: Rejects return if request is not in HANDED_OVER or PARTIALLY_RETURNED state', async () => {
@@ -1251,7 +1339,7 @@ describe('ACM Phase 4 – Borrow & Return Management Test Suite', () => {
             item: { id: itemId, name: 'Cáp chuyển đổi UART' },
           },
         ],
-        reservations: [{ itemId, locationId }],
+        reservations: [{ itemId, locationId, status: ReservationStatus.FULFILLED }],
       }));
 
       mockTx.returnTransaction.findUnique.mockResolvedValue(null);
@@ -1307,6 +1395,62 @@ describe('ACM Phase 4 – Borrow & Return Management Test Suite', () => {
   });
 
   describe('9. HTTP Router Layer & Endpoints', () => {
+    it('TC-BR-32: missing Idempotency-Key rejects return with HTTP 400', async () => {
+      const { req, res, next, getError, waitForCompletion } = createMockContext({
+        method: 'POST',
+        url: `/${borrowRequestId}/return`,
+        headers: createAuthHeaders(technicianUser),
+        params: { id: borrowRequestId },
+        body: { items: [{ borrowDetailId, returnedQuantity: 1, condition: AssetCondition.GOOD }] },
+        user: technicianUser,
+      });
+      borrowRouter(req, res, next);
+      await waitForCompletion();
+      expect(getError()).toBeInstanceOf(AppError);
+      expect(getError()?.statusCode).toBe(400);
+    });
+
+    it('TC-BR-33: malformed Idempotency-Key rejects return with HTTP 400', async () => {
+      const { req, res, next, getError, waitForCompletion } = createMockContext({
+        method: 'POST',
+        url: `/${borrowRequestId}/return`,
+        headers: { ...createAuthHeaders(technicianUser), 'idempotency-key': 'bad!' },
+        params: { id: borrowRequestId },
+        body: { items: [{ borrowDetailId, returnedQuantity: 1, condition: AssetCondition.GOOD }] },
+        user: technicianUser,
+      });
+      borrowRouter(req, res, next);
+      await waitForCompletion();
+      expect(getError()).toBeInstanceOf(AppError);
+      expect(getError()?.statusCode).toBe(400);
+    });
+
+    it('TC-BR-34: valid Idempotency-Key is forwarded to return service', async () => {
+      const key = 'borrow_router_valid_key_01';
+      const spy = vi.spyOn(borrowService, 'returnBorrowRequest').mockResolvedValueOnce({
+        borrowRequest: { id: borrowRequestId, status: BorrowStatus.PARTIALLY_RETURNED } as any,
+        returnNumber: 'RT-TEST-KEY',
+      });
+      const { req, res, next, getError, waitForCompletion } = createMockContext({
+        method: 'POST',
+        url: `/${borrowRequestId}/return`,
+        headers: { ...createAuthHeaders(technicianUser), 'idempotency-key': key },
+        params: { id: borrowRequestId },
+        body: { items: [{ borrowDetailId, returnedQuantity: 1, condition: AssetCondition.GOOD }] },
+        user: technicianUser,
+      });
+      borrowRouter(req, res, next);
+      await waitForCompletion();
+      expect(getError()).toBeNull();
+      expect(res.statusCode).toBe(200);
+      expect(spy).toHaveBeenCalledWith(
+        borrowRequestId,
+        expect.objectContaining({ items: [expect.objectContaining({ borrowDetailId })] }),
+        expect.objectContaining({ id: technicianUser.id }),
+        key
+      );
+    });
+
     it('TC-BR-26: POST / with invalid date range triggers 422 error', async () => {
       const { req, res, next, getError, waitForCompletion } = createMockContext({
         method: 'POST',

@@ -61,6 +61,12 @@ export class IdempotencyService {
       return data;
     }
 
+    // A Date has no enumerable own fields: treating it as an object caches {}.
+    // toJSON() matches Express/JSON.stringify, including invalid dates (null).
+    if (data instanceof Date) {
+      return data.toJSON();
+    }
+
     if (Array.isArray(data)) {
       return data.map((item) => this.sanitizeResponse(item));
     }

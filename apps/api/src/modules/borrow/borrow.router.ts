@@ -14,6 +14,8 @@ import {
   queryBorrowRequestsSchema,
 } from '@acm/shared';
 import { borrowService } from './borrow.service';
+import { getBorrowReturnStatus } from './borrow.return-status';
+import { requireIdempotencyKey, IdempotencyRequest } from '../../middleware/idempotency';
 
 export const borrowRouter = Router();
 
@@ -184,6 +186,24 @@ borrowRouter.patch(
 );
 
 /**
+ * GET /api/v1/borrow-requests/:id/return-status/:key
+ * Read-only lost-session reconciliation. Not a permit to retry when NOT_FOUND.
+ */
+borrowRouter.get(
+  '/:id/return-status/:key',
+  authenticate,
+  authorizeRoles(UserRole.ADMIN, UserRole.LAB_MANAGER, UserRole.TECHNICIAN),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const status = await getBorrowReturnStatus(req.params.id, req.params.key, req.user!);
+      return sendSuccess(res, status, 'Trạng thái đối soát hoàn trả');
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+/**
  * POST /api/v1/borrow-requests/:id/return
  * Confirms full or partial return of borrowed items with condition inspection and stock reconciliation.
  * RBAC: ADMIN, LAB_MANAGER, TECHNICIAN.
@@ -192,6 +212,7 @@ borrowRouter.post(
   '/:id/return',
   authenticate,
   authorizeRoles(UserRole.ADMIN, UserRole.LAB_MANAGER, UserRole.TECHNICIAN),
+  requireIdempotencyKey,
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const parsed = returnBorrowRequestSchema.safeParse(req.body);
@@ -199,10 +220,14 @@ borrowRouter.post(
         throw new AppError('Dữ liệu hoàn trả không hợp lệ', 422, parsed.error.errors);
       }
 
+      // The middleware validates the required header before any business-side effects.
+      const idempotencyKey = (req as IdempotencyRequest).idempotencyKey!;
+
       const result = await borrowService.returnBorrowRequest(
         req.params.id,
         parsed.data,
-        req.user!
+        req.user!,
+        idempotencyKey
       );
       return sendSuccess(res, result, 'Xác nhận hoàn trả linh kiện thành công');
     } catch (err) {

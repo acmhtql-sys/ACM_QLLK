@@ -220,6 +220,47 @@ describe('Idempotency Foundation Unit Test Suite', () => {
   });
 
   // ==========================================
+  // Phase 11D -- cached HTTP response must match original JSON.
+  // ==========================================
+  describe('Date-safe response caching (Phase 11D)', () => {
+    it('preserves nested Prisma Dates as ISO strings in the cached borrow return response', () => {
+      const original = {
+        returnNumber: 'RT-20261023-TEST',
+        borrowRequest: {
+          id: 'borrow-test',
+          createdAt: new Date('2026-10-23T14:37:16.993Z'),
+          updatedAt: new Date('2026-10-23T14:37:17.119Z'),
+          details: [{ updatedAt: new Date('2026-10-23T14:37:17.110Z') }],
+          reservations: [{ createdAt: new Date('2026-10-23T14:37:17.025Z') }],
+          returnTransactions: [{
+            createdAt: new Date('2026-10-23T14:37:17.099Z'),
+            details: [{ createdAt: new Date('2026-10-23T14:37:17.102Z') }],
+          }],
+        },
+      };
+      const cached = idempotencyService.sanitizeResponse(original);
+      expect(cached).toEqual(JSON.parse(JSON.stringify(original)));
+      expect(cached.borrowRequest.createdAt).toBe('2026-10-23T14:37:16.993Z');
+      expect(cached.borrowRequest.returnTransactions[0].details[0].createdAt)
+        .toBe('2026-10-23T14:37:17.102Z');
+    });
+
+    it('preserves sensitive-field sanitization and JSON null for invalid Dates', () => {
+      const sanitized = idempotencyService.sanitizeResponse({
+        createdAt: new Date(Number.NaN),
+        user: { token: 'SECRET', passwordHash: 'HASH',
+          updatedAt: new Date('2026-10-23T00:00:00.000Z') },
+        rows: [{ secret: 'HIDDEN', createdAt: new Date('2026-10-22T00:00:00.000Z') }],
+      });
+      expect(sanitized).toEqual({
+        createdAt: null,
+        user: { updatedAt: '2026-10-23T00:00:00.000Z' },
+        rows: [{ createdAt: '2026-10-22T00:00:00.000Z' }],
+      });
+    });
+  });
+
+  // ==========================================
   // 6. TTL & Expiration Logic
   // ==========================================
   describe('TTL & Expiration Logic', () => {
