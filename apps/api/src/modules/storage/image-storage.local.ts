@@ -81,15 +81,11 @@ export class LocalOnlyDiskItemImageStorage implements ItemImageStorageProvider {
     try {
       await file.writeFile(payload, 'utf8');
       await file.sync();
-    } catch (error) {
-      throw error;
-    } finally {
       await file.close();
-    }
-    try {
       // Same-directory rename publishes the complete record atomically.
       await fs.rename(tempPath, finalPath);
     } catch (error) {
+      await file.close().catch(() => undefined);
       await fs.unlink(tempPath).catch(() => undefined);
       throw error;
     }
