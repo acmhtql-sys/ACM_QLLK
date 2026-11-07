@@ -16,6 +16,15 @@ export function errorHandler(
   );
   logger.error(`Unhandled error: ${sanitizedMessage}`);
 
+  // Compressed request bodies are intentionally unsupported. Respond with 415
+  // (not an internal 500) without echoing raw parser errors or request data.
+  if (err?.type === 'encoding.unsupported') {
+    return res.status(415).json({
+      success: false,
+      message: 'Nội dung yêu cầu đã nén không được hỗ trợ.',
+    });
+  }
+
   // Custom AppError
   if (err instanceof AppError) {
     return res.status(err.statusCode).json({

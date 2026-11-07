@@ -28,8 +28,11 @@ export function createApp(options?: { stagingReadOnly?: StagingReadOnlyOptions }
   // Basic security and parsing middleware
   app.use(helmet());
   app.use(cors({ origin: env.CORS_ORIGIN, credentials: true }));
-  app.use(express.json());
-  app.use(express.urlencoded({ extended: true }));
+  // Reject compressed request bodies before body-parser decompresses them.
+  // Mitigates GHSA-27r3-jxmh-p828 (body-parser 1.20.x) without upgrading
+  // Express / parser major versions during the staging review window.
+  app.use(express.json({ inflate: false, limit: '100kb' }));
+  app.use(express.urlencoded({ extended: true, inflate: false, limit: '100kb' }));
 
   if (env.NODE_ENV !== 'test') {
     app.use(morgan('dev'));

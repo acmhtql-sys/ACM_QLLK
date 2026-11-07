@@ -10,7 +10,7 @@
     "typecheck": "tsc --noEmit",
     "lint": "tsc --noEmit",
     "test": "vitest run",
-    "test:unit": "vitest run -c vitest.mock.config.ts tests/auth.security.unit.test.ts tests/borrow.return.unit.test.ts tests/items.inventory.unit.test.ts tests/schema.integrity.unit.test.ts tests/idempotency.unit.test.ts tests/db.safety.guard.unit.test.ts",
+    "test:unit": "vitest run -c vitest.mock.config.ts tests/auth.security.unit.test.ts tests/borrow.return.unit.test.ts tests/items.inventory.unit.test.ts tests/schema.integrity.unit.test.ts tests/idempotency.unit.test.ts tests/db.safety.guard.unit.test.ts tests/p3f.security.http.unit.test.ts",
     "test:integration": "vitest run tests/health.test.ts tests/auth.test.ts tests/inventory.test.ts tests/items.integration.test.ts tests/integration.db.test.ts tests/e2e.phase21.test.ts tests/staging.readonly.test.ts",
     "prisma:generate": "prisma generate",
     "prisma:validate": "prisma validate",

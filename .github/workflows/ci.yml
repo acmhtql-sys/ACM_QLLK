@@ -60,6 +60,14 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Audit dependency advisories (P3-F report only)
+        # Inventory only: never auto-fix / update lockfile / mutate dependencies.
+        # Findings remain independent release blockers even when this reporting step succeeds.
+        run: |
+          npm audit --json > "$RUNNER_TEMP/acm-audit-all.json" || true
+          npm audit --omit=dev --json > "$RUNNER_TEMP/acm-audit-prod.json" || true
+          node -e 'const fs=require("fs"); for(const [scope,file] of [["all","acm-audit-all.json"],["production","acm-audit-prod.json"]]){ try{const report=JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP+"/"+file,"utf8")); const counts=report.metadata?.vulnerabilities||{}; const vulns=report.vulnerabilities||{}; const high=Object.entries(vulns).filter(([,v])=>["critical","high"].includes(v.severity)).map(([name,v])=>name+"("+v.severity+")"); const summary="P3F "+scope+" npm audit "+JSON.stringify(counts)+" | HIGH/CRITICAL: "+(high.join(", ")||"none"); console.log(summary); fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, "### "+scope+" npm audit\\n\\n"+summary+"\\n\\n"); }catch(e){console.log("P3F "+scope+" audit unavailable: "+String(e.message));}}'
+
       - name: Validate Prisma Schema
         run: npm run prisma:validate
 
@@ -89,6 +97,12 @@ jobs:
 
       - name: Run PostgreSQL Integration Tests
         run: npm run test:integration
+
+      - name: Verify live staging read-only guard (P3-F)
+        # Only PR #39 head branch runs public, safe negative probes.
+        # Uses a nonexistent endpoint for all mutation methods; no credentials or real DB writes.
+        if: github.event_name == 'pull_request' && github.head_ref == 'codex/p3-staging-readonly-deployment-20261107'
+        run: node scripts/p3f-live-readonly-acceptance.mjs
 
 
 
