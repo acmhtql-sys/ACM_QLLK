@@ -5,9 +5,10 @@ import { StatusBadge } from '../components/StatusBadge';
 
 interface HeaderProps {
   onOpenSidebar: () => void;
+  isSidebarOpen: boolean;
 }
 
-export const Header: React.FC<HeaderProps> = ({ onOpenSidebar }) => {
+export const Header: React.FC<HeaderProps> = ({ onOpenSidebar, isSidebarOpen }) => {
   const { user, logout } = useAuth();
 
   return (
@@ -15,8 +16,12 @@ export const Header: React.FC<HeaderProps> = ({ onOpenSidebar }) => {
       {/* Left: Mobile hamburger & search */}
       <div className="flex items-center space-x-3">
         <button
+          type="button"
           onClick={onOpenSidebar}
-          className="rounded-lg p-2 text-slate-600 hover:bg-slate-100 lg:hidden"
+          aria-label="Mở menu điều hướng"
+          aria-controls="acm-mobile-sidebar"
+          aria-expanded={isSidebarOpen}
+          className="rounded-lg p-2 text-slate-600 hover:bg-slate-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-600 lg:hidden"
         >
           <Menu className="h-5 w-5" />
         </button>
