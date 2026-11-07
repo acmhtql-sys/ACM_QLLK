@@ -27,7 +27,7 @@ authRouter.post('/login', loginRateLimiter, accountLoginRateLimiter, async (req:
   try {
     const parsed = loginSchema.safeParse(req.body);
     if (!parsed.success) {
-      throw new AppError('Email hoặc mật khẩu không hợp lệ', 422, parsed.error.errors);
+      throw new AppError('Email hoặc mật khẩu không hợp lệ', 422, parsed.error.issues);
     }
 
     const { email, password } = parsed.data;

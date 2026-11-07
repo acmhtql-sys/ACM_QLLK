@@ -23,7 +23,7 @@ inventoryRouter.get(
 
       const parsedQuery = queryStockBalancesSchema.safeParse(req.query);
       if (!parsedQuery.success) {
-        throw new AppError('Tham số truy vấn số dư kho không hợp lệ', 422, parsedQuery.error.errors);
+        throw new AppError('Tham số truy vấn số dư kho không hợp lệ', 422, parsedQuery.error.issues);
       }
 
       const result = await inventoryService.listBalances(parsedQuery.data);

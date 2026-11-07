@@ -25,10 +25,11 @@ test.describe('Phân hệ 3: Role-Based Access Control (RBAC)', () => {
     await injectAuthSession(page, SYNTHETIC_USERS.student);
     await page.goto('/transactions');
 
-    // Expected: 403 Forbidden screen rendered
-    const forbiddenScreen = page.locator('[data-testid="rbac-forbidden-screen"]');
-    await expect(forbiddenScreen).toBeVisible();
-    await expect(forbiddenScreen).toContainText('403 - Quyền Truy Cập Bị Từ Chối');
+    // RC5 renders a fail-closed role alert, not the retired 403-screen component.
+    // Assert denied UX and zero transaction requests rather than an obsolete test ID.
+    const forbiddenAlert = page.getByRole('alert');
+    await expect(forbiddenAlert).toBeVisible();
+    await expect(forbiddenAlert).toContainText('Không có quyền truy cập trang này.');
 
     // Verify 0 transaction queries dispatched by client
     expect(txRequestCount).toBe(0);

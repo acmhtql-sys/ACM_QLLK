@@ -9,14 +9,14 @@
     "watch": "tsc --watch",
     "typecheck": "tsc --noEmit",
     "lint": "tsc --noEmit",
-    "test": "vitest run",
-    "test:unit": "vitest run"
+    "test": "vitest run src",
+    "test:unit": "vitest run src"
   },
   "dependencies": {
-    "zod": "^3.23.8"
+    "zod": "4.6.7"
   },
   "devDependencies": {
     "typescript": "^5.6.3",
-    "vitest": "^2.1.3"
+    "vitest": "4.1.12"
   }
 }

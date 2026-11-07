@@ -78,14 +78,17 @@ jobs:
       - name: Build All Workspaces
         run: npm run build
 
-      - name: Run Mock Unit Tests (Zero DB)
-        run: npm run test:unit
-
+      # The RC5 AUTH-LASTADMIN-06 safety test uses a live Prisma
+      # transaction despite its unit label. Prepare the ephemeral CI DB
+      # first instead of silently weakening that negative assertion.
       - name: Apply Migrations to CI Test Database
         run: npm run prisma:migrate:test
 
       - name: Seed CI Test Database
         run: npm run prisma:seed:test
+
+      - name: Run All RC5 Unit Tests with CI Database Ready
+        run: npm run test:unit
 
       - name: Run PostgreSQL Integration Tests
         run: npm run test:integration

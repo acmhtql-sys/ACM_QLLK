@@ -35,7 +35,7 @@ categoriesRouter.get('/:id', authenticateCatalogInStaging, async (req: Request, 
   try {
     const paramParsed = categoryIdParamSchema.safeParse(req.params);
     if (!paramParsed.success) {
-      throw new AppError('ID danh mục không hợp lệ (yêu cầu UUID)', 400, paramParsed.error.errors);
+      throw new AppError('ID danh mục không hợp lệ (yêu cầu UUID)', 400, paramParsed.error.issues);
     }
 
     const category = await categoriesService.getCategoryById(req.params.id);
@@ -58,7 +58,7 @@ categoriesRouter.post(
     try {
       const parsed = createCategorySchema.safeParse(req.body);
       if (!parsed.success) {
-        throw new AppError('Dữ liệu tạo danh mục không hợp lệ', 400, parsed.error.errors);
+        throw new AppError('Dữ liệu tạo danh mục không hợp lệ', 400, parsed.error.issues);
       }
 
       const created = await categoriesService.createCategory(
@@ -88,12 +88,12 @@ categoriesRouter.patch(
     try {
       const paramParsed = categoryIdParamSchema.safeParse(req.params);
       if (!paramParsed.success) {
-        throw new AppError('ID danh mục không hợp lệ (yêu cầu UUID)', 400, paramParsed.error.errors);
+        throw new AppError('ID danh mục không hợp lệ (yêu cầu UUID)', 400, paramParsed.error.issues);
       }
 
       const parsed = updateCategorySchema.safeParse(req.body);
       if (!parsed.success) {
-        throw new AppError('Dữ liệu cập nhật danh mục không hợp lệ', 400, parsed.error.errors);
+        throw new AppError('Dữ liệu cập nhật danh mục không hợp lệ', 400, parsed.error.issues);
       }
 
       const updated = await categoriesService.updateCategory(
@@ -124,7 +124,7 @@ categoriesRouter.delete(
     try {
       const paramParsed = categoryIdParamSchema.safeParse(req.params);
       if (!paramParsed.success) {
-        throw new AppError('ID danh mục không hợp lệ (yêu cầu UUID)', 400, paramParsed.error.errors);
+        throw new AppError('ID danh mục không hợp lệ (yêu cầu UUID)', 400, paramParsed.error.issues);
       }
 
       const deleted = await categoriesService.deleteCategory(

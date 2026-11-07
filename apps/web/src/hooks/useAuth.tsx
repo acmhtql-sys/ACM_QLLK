@@ -26,7 +26,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     queryClient = null;
   }
 
-  const [token, setToken] = useState<string | null>(() => localStorage.getItem('acm_token'));
+  const [token, setToken] = useState<string | null>(() => {
+    const storedToken = localStorage.getItem('acm_token');
+    // Revoke sessions created by the retired offline Phase 1 mock login flow.
+    if (storedToken === 'mock-jwt-token-foundation-phase1') {
+      localStorage.removeItem('acm_token');
+      localStorage.removeItem('acm_user');
+      return null;
+    }
+    return storedToken;
+  });
   const [user, setUser] = useState<UserProfile | null>(() => {
     const saved = localStorage.getItem('acm_user');
     return saved ? JSON.parse(saved) : null;

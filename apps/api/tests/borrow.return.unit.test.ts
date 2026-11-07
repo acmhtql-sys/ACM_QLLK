@@ -19,6 +19,7 @@ import { env } from '../src/config/env';
 // Mock prisma client
 vi.mock('../src/config/database', () => {
   const mockTx = {
+    $queryRaw: vi.fn(),
     borrowRequest: {
       findUnique: vi.fn(),
       findMany: vi.fn(),

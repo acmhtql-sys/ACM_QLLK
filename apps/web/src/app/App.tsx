@@ -29,8 +29,13 @@ const RoleProtectedPage: React.FC<{ path: string; children: React.ReactElement }
   const { user } = useAuth();
   if (!canAccessPage(user?.role, path)) {
     return (
-      <div role="alert" className="rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm text-rose-900">
-        Không có quyền truy cập trang này.
+      <div
+        role="alert"
+        data-testid="rbac-forbidden-screen"
+        className="rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm text-rose-900"
+      >
+        <p className="font-semibold">403 - Quyền Truy Cập Bị Từ Chối</p>
+        <p>Không có quyền truy cập trang này.</p>
       </div>
     );
   }

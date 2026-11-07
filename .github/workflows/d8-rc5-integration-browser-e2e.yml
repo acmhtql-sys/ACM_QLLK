@@ -1,0 +1,44 @@
+name: ACM D8 RC5-Zod4 Isolated Browser Regression (NO DEPLOY)
+
+on:
+  push:
+    branches:
+      - codex/d8-rc5-zod4-integration-20261107
+  pull_request:
+    branches:
+      - codex/cloud-staging-p2e-readonly-deploy-20261107
+
+permissions:
+  contents: read
+
+jobs:
+  browser-mock-only:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      CI: 'true'
+      NODE_ENV: test
+      # Compile-time feature flags apply ONLY to the isolated localhost
+      # Playwright fixture. They must never be exported to any service.
+      VITE_API_BASE_URL: http://127.0.0.1:4174/api/v1
+      VITE_ENABLE_LOCATION_WRITES: 'false'
+      VITE_ENABLE_STOCK_TRANSACTION_WRITES: 'true'
+      VITE_ENABLE_STOCK_ADJUSTMENT: 'true'
+    steps:
+      - name: Checkout isolated Draft PR
+        uses: actions/checkout@v4
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Install locked dependencies, no lifecycle scripts
+        run: npm ci --ignore-scripts --no-fund --no-audit
+      - name: Build shared package and isolated mock frontend
+        run: |
+          npm run build:shared
+          npm run build:web
+      - name: Install browser only on GitHub runner
+        run: npx playwright install --with-deps chromium
+      - name: Run strict default-deny localhost mock E2E
+        run: npm run test:e2e:mock --workspace=@acm/web

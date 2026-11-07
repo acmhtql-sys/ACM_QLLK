@@ -33,7 +33,7 @@ kitsRouter.get(
     try {
       const parsed = queryKitsSchema.safeParse(req.query);
       if (!parsed.success) {
-        throw new AppError('Dữ liệu truy vấn danh sách kit không hợp lệ', 422, parsed.error.errors);
+        throw new AppError('Dữ liệu truy vấn danh sách kit không hợp lệ', 422, parsed.error.issues);
       }
 
       const result = await kitsService.listKits(parsed.data, req.user!);
@@ -76,7 +76,7 @@ kitsRouter.post(
     try {
       const parsed = createKitSchema.safeParse(req.body);
       if (!parsed.success) {
-        throw new AppError('Dữ liệu tạo hộp kit không hợp lệ', 422, parsed.error.errors);
+        throw new AppError('Dữ liệu tạo hộp kit không hợp lệ', 422, parsed.error.issues);
       }
 
       const kit = await kitsService.createKit(parsed.data, req.user!, getRequestMetadata(req));
@@ -101,7 +101,7 @@ kitsRouter.put(
       const { id } = req.params;
       const parsed = updateKitSchema.safeParse(req.body);
       if (!parsed.success) {
-        throw new AppError('Dữ liệu cập nhật hộp kit không hợp lệ', 422, parsed.error.errors);
+        throw new AppError('Dữ liệu cập nhật hộp kit không hợp lệ', 422, parsed.error.issues);
       }
 
       const kit = await kitsService.updateKit(id, parsed.data, req.user!, getRequestMetadata(req));
@@ -126,7 +126,7 @@ kitsRouter.patch(
       const { id } = req.params;
       const parsed = updateKitStatusSchema.safeParse(req.body);
       if (!parsed.success) {
-        throw new AppError('Dữ liệu cập nhật trạng thái kit không hợp lệ', 422, parsed.error.errors);
+        throw new AppError('Dữ liệu cập nhật trạng thái kit không hợp lệ', 422, parsed.error.issues);
       }
 
       const kit = await kitsService.updateKitStatus(

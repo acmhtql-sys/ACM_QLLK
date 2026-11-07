@@ -5,8 +5,8 @@ import { apiClient } from '../services/api';
 import { ShieldCheck, Cpu, ArrowRight, AlertCircle } from 'lucide-react';
 
 export const LoginPage: React.FC = () => {
-  const [email, setEmail] = useState('admin@acm.local');
-  const [password, setPassword] = useState('ACM@dev2026!');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const { login } = useAuth();
@@ -26,35 +26,17 @@ export const LoginPage: React.FC = () => {
         setError(res.data.message || 'Email hoặc mật khẩu không chính xác');
       }
     } catch (err: any) {
+      // Fail closed: network errors must never create a local authenticated session.
       if (err.response) {
         setError(err.response.data?.message || 'Email hoặc mật khẩu không chính xác');
-        return;
+      } else if (err.code === 'ECONNABORTED' || err.code === 'ETIMEDOUT') {
+        setError('Máy chủ phản hồi quá chậm (có thể đang khởi động). Vui lòng thử lại sau.');
+      } else {
+        setError('Không thể kết nối máy chủ xác thực. Vui lòng thử lại sau.');
       }
-      // In Phase 1 foundation, if API is not running yet, provide instant offline mock fallback
-      console.warn('API connection failed, falling back to local session', err);
-      const mockRole = email.includes('manager')
-        ? 'LAB_MANAGER'
-        : email.includes('tech')
-        ? 'TECHNICIAN'
-        : email.includes('student')
-        ? 'STUDENT'
-        : 'ADMIN';
-
-      login('mock-jwt-token-foundation-phase1', {
-        id: 'mock-user-id',
-        email,
-        fullName: email.split('@')[0].toUpperCase(),
-        role: mockRole as any,
-      });
-      navigate('/dashboard');
     } finally {
       setIsLoading(false);
     }
-  };
-
-  const fillCredentials = (userEmail: string) => {
-    setEmail(userEmail);
-    setPassword('ACM@dev2026!');
   };
 
   return (
@@ -142,49 +124,6 @@ export const LoginPage: React.FC = () => {
             </button>
           </form>
 
-          {/* Demo Credentials Quick-Fill */}
-          <div className="border-t border-slate-100 pt-5">
-            <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
-              Chọn nhanh tài khoản thử nghiệm (Demo)
-            </div>
-            <div className="mt-3 grid grid-cols-2 gap-2">
-              <button
-                type="button"
-                onClick={() => fillCredentials('admin@acm.local')}
-                className="rounded-lg border border-slate-200 bg-slate-50/80 px-2.5 py-1.5 text-left text-[11px] font-medium text-slate-700 hover:border-blue-300 hover:bg-blue-50/50"
-              >
-                <div className="font-semibold text-purple-700">Admin</div>
-                <div className="truncate text-[10px] text-slate-400">admin@acm.local</div>
-              </button>
-              <button
-                type="button"
-                onClick={() => fillCredentials('manager@acm.local')}
-                className="rounded-lg border border-slate-200 bg-slate-50/80 px-2.5 py-1.5 text-left text-[11px] font-medium text-slate-700 hover:border-blue-300 hover:bg-blue-50/50"
-              >
-                <div className="font-semibold text-blue-700">Lab Manager</div>
-                <div className="truncate text-[10px] text-slate-400">manager@acm.local</div>
-              </button>
-              <button
-                type="button"
-                onClick={() => fillCredentials('tech@acm.local')}
-                className="rounded-lg border border-slate-200 bg-slate-50/80 px-2.5 py-1.5 text-left text-[11px] font-medium text-slate-700 hover:border-blue-300 hover:bg-blue-50/50"
-              >
-                <div className="font-semibold text-emerald-700">Technician</div>
-                <div className="truncate text-[10px] text-slate-400">tech@acm.local</div>
-              </button>
-              <button
-                type="button"
-                onClick={() => fillCredentials('student@acm.local')}
-                className="rounded-lg border border-slate-200 bg-slate-50/80 px-2.5 py-1.5 text-left text-[11px] font-medium text-slate-700 hover:border-blue-300 hover:bg-blue-50/50"
-              >
-                <div className="font-semibold text-slate-700">Student</div>
-                <div className="truncate text-[10px] text-slate-400">student@acm.local</div>
-              </button>
-            </div>
-            <p className="mt-2 text-center text-[10px] text-slate-400">
-              Mật khẩu mặc định: <code className="font-mono text-slate-600">ACM@dev2026!</code>
-            </p>
-          </div>
         </div>
       </div>
     </div>

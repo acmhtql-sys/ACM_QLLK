@@ -1806,7 +1806,7 @@ const mockPasswordHash = '$2a$12$e8YvXmCjB8N123456789012345678901234567890123456
         const passwordHash = await bcrypt.hash(password, 10);
 
         // Case 6a: Password was changed concurrently during bcrypt check -> updateMany matches 0 rows
-        vi.spyOn(prisma.user, 'findUnique').mockResolvedValueOnce({
+        const concurrentPasswordUser = {
           id: mockUserId,
           email: 'concurrent-pass@acm.local',
           fullName: 'User Password Changed',
@@ -1815,7 +1815,12 @@ const mockPasswordHash = '$2a$12$e8YvXmCjB8N123456789012345678901234567890123456
           failedLoginAttempts: 0,
           isLocked: false,
           isActive: true,
-        } as any);
+        } as any;
+        // Login first reads outside the transaction and then re-reads inside it.
+        // Mock BOTH reads: never leak a zero-DB unit case into live Prisma.
+        vi.spyOn(prisma.user, 'findUnique')
+          .mockResolvedValueOnce(concurrentPasswordUser)
+          .mockResolvedValueOnce(concurrentPasswordUser);
         // updateMany matches 0 rows because passwordHash in DB is now new-hash-2
         vi.spyOn(prisma.user, 'updateMany').mockResolvedValueOnce({ count: 0 });
 
@@ -1839,7 +1844,7 @@ const mockPasswordHash = '$2a$12$e8YvXmCjB8N123456789012345678901234567890123456
         expect(ctx1.res.body).toBeNull();
 
         // Case 6b: Account was deactivated concurrently -> updateMany matches 0 rows
-        vi.spyOn(prisma.user, 'findUnique').mockResolvedValueOnce({
+        const concurrentDeactivatedUser = {
           id: mockUserId,
           email: 'concurrent-deact@acm.local',
           fullName: 'User Deactivated',
@@ -1848,7 +1853,10 @@ const mockPasswordHash = '$2a$12$e8YvXmCjB8N123456789012345678901234567890123456
           failedLoginAttempts: 0,
           isLocked: false,
           isActive: true,
-        } as any);
+        } as any;
+        vi.spyOn(prisma.user, 'findUnique')
+          .mockResolvedValueOnce(concurrentDeactivatedUser)
+          .mockResolvedValueOnce(concurrentDeactivatedUser);
         vi.spyOn(prisma.user, 'updateMany').mockResolvedValueOnce({ count: 0 });
 
         const ctx2 = createMockContext(

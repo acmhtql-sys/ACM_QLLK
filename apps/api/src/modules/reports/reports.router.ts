@@ -189,7 +189,7 @@ reportsRouter.get(
     try {
       const parsed = queryReportsSchema.safeParse(req.query);
       if (!parsed.success) {
-        throw new AppError('Dữ liệu truy vấn báo cáo không hợp lệ', 422, parsed.error.errors);
+        throw new AppError('Dữ liệu truy vấn báo cáo không hợp lệ', 422, parsed.error.issues);
       }
 
       const report = await reportsService.getInventoryReport(parsed.data, req.user!);

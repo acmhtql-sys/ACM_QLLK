@@ -211,10 +211,34 @@ async function runBorrowTransaction<T>(
       timeout: 15_000,
     });
   } catch (error: unknown) {
-    if (typeof error === 'object' && error !== null && 'code' in error &&
-        error.code === 'P2034') {
+    // Prisma usually surfaces Serializable conflicts as P2034, but a
+    // parameterized SELECT ... FOR UPDATE may report P2010 with PostgreSQL
+    // SQLSTATE 40001 (serialization_failure) or 40P01 (deadlock_detected).
+    // Map only those exact concurrency conditions to a safe HTTP 409.
+    const prismaError = error && typeof error === 'object'
+      ? error as {
+          code?: unknown;
+          meta?: { code?: unknown; originalCode?: unknown };
+          message?: unknown;
+        }
+      : null;
+    const prismaCode = prismaError?.code;
+    const sqlStates = [prismaError?.meta?.code, prismaError?.meta?.originalCode]
+      .map((value) => String(value ?? ''));
+    const rawMessage = typeof prismaError?.message === 'string'
+      ? prismaError.message : '';
+    // Prisma's raw-query SQLSTATE may be serialized in the error message
+    // rather than meta.code. Limit this fallback to the exact concurrency
+    // SQLSTATEs; never hide unrelated database failures.
+    const hasSerializationCode =
+      sqlStates.includes('40001') || sqlStates.includes('40P01') ||
+      /Raw query failed\. Code: \`(?:40001|40P01)\`/.test(rawMessage);
+    if (
+      prismaCode === 'P2034' ||
+      (prismaCode === 'P2010' && hasSerializationCode)
+    ) {
       throw new AppError(
-        'Giao dịch kho đang được cập nhật đồng thời. Vui lòng tải lại tồn kho và thử lại',
+        'Giao dịch kho đang được cập nhật đồng thời. Vui lòng tải lại tồn kho và đối soát trước khi thử lại',
         409
       );
     }
@@ -815,6 +839,9 @@ export class BorrowService {
           }
         }
 
+      // D8-P0: serialize a BorrowRequest BEFORE reading returnedQuantity.
+      await tx.$queryRaw`SELECT "id" FROM "borrow_requests"
+        WHERE "id" = ${id}::uuid FOR UPDATE`;
       const req = await tx.borrowRequest.findUnique({
         where: { id },
         include: {
@@ -924,6 +951,10 @@ export class BorrowService {
 
         // Never create a new balance or silently cap the reduction in borrowed.
         // A mismatch is evidence of unreconciled physical or logical stock.
+        // D8-P0: source balance lock protects onHandBefore and borrowed.
+        await tx.$queryRaw`SELECT "id" FROM "stock_balances"
+          WHERE "itemId" = ${detail.itemId}::uuid
+          AND "locationId" = ${destinationLocationId}::uuid FOR UPDATE`;
         const bal = await tx.stockBalance.findUnique({
           where: {
             itemId_locationId: { itemId: detail.itemId, locationId: destinationLocationId },

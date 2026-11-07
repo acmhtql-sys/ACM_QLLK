@@ -20,7 +20,7 @@ test.describe('Phân hệ 4: Inventory Balances & Formulas (INV)', () => {
     const balanceTable = page.locator('table');
     await expect(balanceTable).toBeVisible();
 
-    // Find row for Arduino Uno R3 (itm-01)
+    // Find row for Arduino Uno R3 (10000000-0000-4000-8000-000000000001)
     const arduinoRow = page.locator('tr:has-text("Arduino Uno R3")');
     await expect(arduinoRow).toBeVisible();
 

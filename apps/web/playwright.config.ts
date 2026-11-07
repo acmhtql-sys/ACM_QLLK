@@ -16,7 +16,7 @@ export default defineConfig({
     ['html', { open: 'never', outputFolder: 'playwright-report' }],
   ],
   use: {
-    baseURL: 'http://127.0.0.1:4173',
+    baseURL: 'http://127.0.0.1:4174',
     trace: 'off', // Evidence security: traces OFF by default to avoid leaking sensitive data
     screenshot: 'only-on-failure',
     video: 'off',
@@ -34,8 +34,8 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command: 'npm run preview -- --port 4173 --host 127.0.0.1',
-    url: 'http://127.0.0.1:4173',
+    command: 'npm run preview -- --port 4174 --host 127.0.0.1',
+    url: 'http://127.0.0.1:4174',
     reuseExistingServer: !process.env.CI,
     timeout: 30000,
   },

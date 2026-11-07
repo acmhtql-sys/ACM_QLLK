@@ -23,6 +23,7 @@ vi.mock('../src/modules/inventory/idempotency.service', () => ({
 
 vi.mock('../src/config/database', () => {
   const tx = {
+    $queryRaw: vi.fn(),
     borrowRequest: { findUnique: vi.fn(), update: vi.fn() },
     borrowDetail: { update: vi.fn(), findMany: vi.fn() },
     returnTransaction: { findUnique: vi.fn(), create: vi.fn() },

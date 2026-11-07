@@ -39,7 +39,7 @@ export function errorHandler(
     return res.status(422).json({
       success: false,
       message: 'Dữ liệu đầu vào không hợp lệ',
-      details: err.errors.map((e) => ({
+      details: err.issues.map((e) => ({
         field: e.path.join('.'),
         message: e.message,
       })),
