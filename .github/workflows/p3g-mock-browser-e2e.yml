@@ -6,6 +6,7 @@ on:
       - codex/p3-staging-readonly-deployment-20261107
       - codex/p3g-zod4-compat-probe-20261107
       - codex/p3h-toolchain-security-probe-20261107
+      - codex/d8-p0-safe-return-ledger-20261107
 
 permissions:
   contents: read

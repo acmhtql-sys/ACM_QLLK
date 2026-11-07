@@ -53,6 +53,7 @@ export const BorrowReturnPage: React.FC = () => {
   const [returningBorrow, setReturningBorrow] = useState<BorrowRecord | null>(null);
   const [returnCondition, setReturnCondition] = useState<'GOOD' | 'DAMAGED' | 'LOST'>('GOOD');
   const [returnNotes, setReturnNotes] = useState<string>('');
+  const [pendingReturn, setPendingReturn] = useState<{ borrowId: string; key: string } | null>(null);
 
   // Reject dialog state
   const [rejectingBorrowId, setRejectingBorrowId] = useState<string | null>(null);
@@ -163,34 +164,59 @@ export const BorrowReturnPage: React.FC = () => {
     }
   };
 
+  const clearPendingReturn = (borrowId: string) => {
+    setPendingReturn(null);
+    try { window.sessionStorage.removeItem(`acm.return.pending.${borrowId}`); } catch { /* private mode */ }
+  };
+
   const handleReturnConfirm = async () => {
     if (!returningBorrow || !returningBorrow.details) return;
+    if (pendingReturn?.borrowId === returningBorrow.id) {
+      setStatusMessage({
+        type: 'error',
+        text: 'Phiếu trả đang chờ xác minh kết quả. Chỉ được kiểm tra trạng thái, không gửi lại.',
+      });
+      return;
+    }
 
-    setActionLoading(returningBorrow.id);
+    const returnItems = returningBorrow.details
+      .filter((d) => d.quantity > (d.returnedQuantity || 0))
+      .map((d) => ({
+        borrowDetailId: d.id,
+        returnedQuantity: d.quantity - (d.returnedQuantity || 0),
+        condition: returnCondition,
+        notes: returnNotes || undefined,
+      }));
+
+    if (returnItems.length === 0) {
+      setStatusMessage({ type: 'error', text: 'Không còn linh kiện nào cần hoàn trả trong phiếu này' });
+      setReturningBorrow(null);
+      return;
+    }
+
+    // Crypto-generated key; never create a new business intent after an
+    // ambiguous network result. Persist only the opaque key in sessionStorage
+    // so re-opening the dialog cannot accidentally issue a duplicate POST.
+    const key = window.crypto?.randomUUID?.();
+    if (!key) {
+      setStatusMessage({ type: 'error', text: 'Không thể tạo khóa xác nhận an toàn cho phiếu trả.' });
+      return;
+    }
+    const borrowId = returningBorrow.id;
+    setPendingReturn({ borrowId, key });
+    try { window.sessionStorage.setItem(`acm.return.pending.${borrowId}`, key); } catch { /* memory only */ }
+
+    setActionLoading(borrowId);
     setStatusMessage(null);
     try {
-      // Return remaining quantity of all items in this request
-      const returnItems = returningBorrow.details
-        .filter((d) => d.quantity > (d.returnedQuantity || 0))
-        .map((d) => ({
-          borrowDetailId: d.id,
-          returnedQuantity: d.quantity - (d.returnedQuantity || 0),
-          condition: returnCondition,
-          notes: returnNotes || undefined,
-        }));
-
-      if (returnItems.length === 0) {
-        setStatusMessage({ type: 'error', text: 'Không còn linh kiện nào cần hoàn trả trong phiếu này' });
-        setReturningBorrow(null);
-        return;
-      }
-
-      const res = await apiClient.post(`/borrow-requests/${returningBorrow.id}/return`, {
-        items: returnItems,
-        notes: returnNotes || 'Hoàn trả linh kiện tại Lab',
-      });
+      const res = await apiClient.post(
+        `/borrow-requests/${borrowId}/return`,
+        { items: returnItems, notes: returnNotes || 'Hoàn trả linh kiện tại Lab' },
+        { headers: { 'Idempotency-Key': key } }
+      );
 
       if (res.data?.success) {
+        clearPendingReturn(borrowId);
         setStatusMessage({
           type: 'success',
           text: `Đã hoàn trả thành công! Mã phiếu trả: ${res.data.data?.returnNumber || ''}`,
@@ -198,10 +224,53 @@ export const BorrowReturnPage: React.FC = () => {
         setReturningBorrow(null);
         setReturnNotes('');
         await fetchBorrows();
+      } else {
+        setStatusMessage({
+          type: 'error',
+          text: 'Phản hồi hoàn trả chưa đủ chứng cứ xác nhận. Hãy kiểm tra trạng thái, không gửi lại POST.',
+        });
       }
-    } catch (err: any) {
-      const msg = err.response?.data?.message || 'Có lỗi xảy ra khi xác nhận hoàn trả';
-      setStatusMessage({ type: 'error', text: msg });
+    } catch {
+      // Timeout, 409, 5xx, network error and even unexpected failures are
+      // treated as ambiguous. Never resubmit a POST with a fresh key.
+      setStatusMessage({
+        type: 'error',
+        text: 'Chưa xác minh được kết quả hoàn trả. Không gửi lại phiếu; hãy dùng nút Đối soát trạng thái.',
+      });
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleReturnStatusCheck = async () => {
+    if (!pendingReturn || !returningBorrow || pendingReturn.borrowId !== returningBorrow.id) return;
+    const { borrowId, key } = pendingReturn;
+    setActionLoading(borrowId);
+    try {
+      const res = await apiClient.get(
+        `/borrow-requests/${borrowId}/return-idempotency/${encodeURIComponent(key)}`
+      );
+      const state = res.data?.data;
+      if (state?.status === 'COMPLETED' && state?.confirmed && state?.returnNumber) {
+        clearPendingReturn(borrowId);
+        setStatusMessage({
+          type: 'success',
+          text: `Đã xác minh hoàn trả thành công. Mã phiếu: ${state.returnNumber}`,
+        });
+        setReturningBorrow(null);
+        setReturnNotes('');
+        await fetchBorrows();
+      } else {
+        setStatusMessage({
+          type: 'error',
+          text: 'Máy chủ chưa xác nhận giao dịch đã hoàn tất. Giữ nguyên khóa và liên hệ người quản trị; không gửi phiếu mới.',
+        });
+      }
+    } catch {
+      setStatusMessage({
+        type: 'error',
+        text: 'Không thể đối soát tự động. Giữ nguyên phiếu đang chờ và liên hệ quản trị viên.',
+      });
     } finally {
       setActionLoading(null);
     }
@@ -427,6 +496,11 @@ export const BorrowReturnPage: React.FC = () => {
                             setReturningBorrow(b);
                             setReturnCondition('GOOD');
                             setReturnNotes('');
+                            let pendingKey: string | null = null;
+                            try {
+                              pendingKey = window.sessionStorage.getItem(`acm.return.pending.${b.id}`);
+                            } catch { /* private mode */ }
+                            setPendingReturn(pendingKey ? { borrowId: b.id, key: pendingKey } : null);
                           }}
                           disabled={actionLoading === b.id}
                           className="inline-flex items-center space-x-1 rounded bg-emerald-50 px-2.5 py-1 text-[11px] font-semibold text-emerald-700 hover:bg-emerald-100 disabled:opacity-50"
@@ -521,6 +595,21 @@ export const BorrowReturnPage: React.FC = () => {
               </div>
             </div>
 
+            {pendingReturn?.borrowId === returningBorrow.id && (
+              <div role="alert" className="mt-4 rounded-lg border border-amber-300 bg-amber-50 p-3 text-xs text-amber-900">
+                <p className="font-semibold">Phiếu trả đang chờ đối soát với máy chủ.</p>
+                <p className="mt-1">Không tạo phiếu trả mới hoặc nhấn gửi lại khi chưa có bằng chứng giao dịch đã hoàn tất.</p>
+                <button
+                  type="button"
+                  onClick={handleReturnStatusCheck}
+                  disabled={actionLoading === returningBorrow.id}
+                  className="mt-2 rounded border border-amber-500 px-3 py-1 font-semibold disabled:opacity-50"
+                >
+                  {actionLoading === returningBorrow.id ? 'Đang đối soát...' : 'Đối soát trạng thái (GET)'}
+                </button>
+              </div>
+            )}
+
             <div className="mt-5 flex justify-end space-x-2">
               <button
                 type="button"
@@ -532,7 +621,7 @@ export const BorrowReturnPage: React.FC = () => {
               <button
                 type="button"
                 onClick={handleReturnConfirm}
-                disabled={actionLoading === returningBorrow.id}
+                disabled={actionLoading === returningBorrow.id || pendingReturn?.borrowId === returningBorrow.id}
                 className="rounded-lg bg-emerald-600 px-3.5 py-1.5 text-xs font-semibold text-white shadow-sm hover:bg-emerald-700 disabled:opacity-50"
               >
                 {actionLoading === returningBorrow.id ? 'Đang xử lý...' : 'Xác nhận hoàn trả'}

@@ -2,6 +2,7 @@ import crypto from 'crypto';
 import { Prisma } from '@prisma/client';
 import { prisma } from '../../config/database';
 import { AppError } from '../../shared/AppError';
+import { idempotencyService } from '../inventory/idempotency.service';
 import { AuthenticatedUser } from '../../middleware/auth';
 import {
   UserRole,
@@ -726,7 +727,8 @@ export class BorrowService {
   async returnBorrowRequest(
     id: string,
     input: ReturnBorrowRequestInput,
-    currentUser: AuthenticatedUser
+    currentUser: AuthenticatedUser,
+    idempotencyKey?: string
   ): Promise<{ borrowRequest: BorrowRequestResponse; returnNumber: string }> {
     if (
       currentUser.role !== UserRole.ADMIN &&
@@ -739,7 +741,67 @@ export class BorrowService {
       );
     }
 
-    const result = await prisma.$transaction(async (tx) => {
+    // HTTP callers must supply a validated Idempotency-Key. The keyless path
+    // exists only for legacy isolated unit-test helpers and cannot execute in
+    // development or production (including any live staging deployment).
+    if (!idempotencyKey && process.env.NODE_ENV !== 'test') {
+      throw new AppError('Idempotency-Key là bắt buộc khi hoàn trả linh kiện', 428);
+    }
+    if (idempotencyKey && !idempotencyService.validateKey(idempotencyKey)) {
+      throw new AppError('Idempotency-Key phải có 8-64 ký tự chữ, số, - hoặc _', 422);
+    }
+
+    const endpoint = `/api/v1/borrow-requests/${id}/return`;
+    const requestHash = idempotencyKey
+      ? idempotencyService.generateFingerprint(currentUser.id, endpoint, input)
+      : undefined;
+
+    const replay = (record: any): {
+      borrowRequest: BorrowRequestResponse;
+      returnNumber: string;
+    } => {
+      idempotencyService.verifyRecordMatch(
+        record, currentUser.id, endpoint, requestHash!
+      );
+      const saved = record.responseBody as any;
+      if (
+        record.status !== 'COMPLETED' ||
+        record.statusCode !== 200 ||
+        !saved || typeof saved.returnNumber !== 'string' ||
+        !saved.borrowRequest
+      ) {
+        throw new AppError(
+          'Trạng thái hoàn trả chưa được xác minh; vui lòng tra cứu thay vì gửi lại phiếu',
+          409
+        );
+      }
+      return saved as { borrowRequest: BorrowRequestResponse; returnNumber: string };
+    };
+
+    if (idempotencyKey) {
+      const existing = await prisma.idempotencyRecord.findUnique({
+        where: { key: idempotencyKey },
+      });
+      if (existing) return replay(existing);
+    }
+
+    try {
+      return await prisma.$transaction(async (tx) => {
+      // Claim the idempotency key INSIDE the same transaction as the receipt,
+      // stock delta and audit. Concurrent inserts of the same unique key wait
+      // for the first commit; none can commit a PENDING orphan.
+      if (idempotencyKey) {
+        await tx.idempotencyRecord.create({
+          data: {
+            key: idempotencyKey,
+            userId: currentUser.id,
+            endpoint,
+            requestHash: requestHash!,
+            status: 'PENDING',
+            expiresAt: idempotencyService.getExpirationDate(),
+          },
+        });
+      }
       // Serialize returns for the SAME borrow request before reading returnedQuantity.
       // A plain Prisma findUnique() does not lock a PostgreSQL row.
       await tx.$queryRaw`SELECT "id" FROM "borrow_requests"
@@ -999,13 +1061,34 @@ export class BorrowService {
         },
       });
 
-      return { updatedReq, returnNumber };
+      const outcome = {
+        borrowRequest: formatBorrowRequestResponse(updatedReq),
+        returnNumber,
+      };
+      if (idempotencyKey) {
+        // Cache exactly the committed public response in the same DB commit;
+        // after a lost HTTP response, the same key returns this result.
+        await tx.idempotencyRecord.update({
+          where: { key: idempotencyKey },
+          data: {
+            status: 'COMPLETED',
+            statusCode: 200,
+            responseBody: JSON.parse(JSON.stringify(outcome)) as Prisma.InputJsonValue,
+          },
+        });
+      }
+      return outcome;
     });
-
-    return {
-      borrowRequest: formatBorrowRequestResponse(result.updatedReq),
-      returnNumber: result.returnNumber,
-    };
+    } catch (error: any) {
+      if (idempotencyKey && idempotencyService.isIdempotencyKeyConflict(error)) {
+        const existing = await prisma.idempotencyRecord.findUnique({
+          where: { key: idempotencyKey },
+        });
+        if (existing) return replay(existing);
+        throw new AppError('Không xác định được kết quả hoàn trả; cần đối soát', 409);
+      }
+      throw error;
+    }
   }
 
   /**

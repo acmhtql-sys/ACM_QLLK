@@ -1,5 +1,9 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { randomUUID } from 'node:crypto';
+import jwt from 'jsonwebtoken';
+import httpRequest from 'supertest';
+import { createApp } from '../src/app';
+import { env } from '../src/config/env';
 import { prisma } from '../src/config/database';
 import {
   assertSafeTestDatabaseUrl,
@@ -17,6 +21,7 @@ import { AssetCondition, BorrowStatus, ReservationStatus, UserRole } from '@acm/
  */
 describe('D8-P0 isolated CI PostgreSQL return concurrency and A -> B ledger', () => {
   const suffix = randomUUID().replace(/-/g, '').slice(0, 12);
+  const idempotencyKeyPrefix = `D8RET${suffix}`;
   const created = {
     itemId: '',
     sourceLocationId: '',
@@ -120,6 +125,9 @@ describe('D8-P0 isolated CI PostgreSQL return concurrency and A -> B ledger', ()
       SELECT current_database() AS db
     `;
     assertRuntimeDatabaseIsTest(db);
+    await prisma.idempotencyRecord.deleteMany({
+      where: { key: { startsWith: idempotencyKeyPrefix } },
+    });
     if (created.requestId) {
       const returns = await prisma.returnTransaction.findMany({
         where: { borrowRequestId: created.requestId },
@@ -183,15 +191,17 @@ describe('D8-P0 isolated CI PostgreSQL return concurrency and A -> B ledger', ()
 
     await locked;
     let completed = 0;
-    const runReturn = () => borrowService.returnBorrowRequest(
-      created.requestId, input, operator
+    const key1 = `${idempotencyKeyPrefix}A`;
+    const key2 = `${idempotencyKeyPrefix}B`;
+    const runReturn = (key: string) => borrowService.returnBorrowRequest(
+      created.requestId, input, operator, key
     ).then(
       (result) => { completed++; return { ok: true as const, result }; },
       (error: unknown) => { completed++; return { ok: false as const, error }; }
     );
 
-    const first = runReturn();
-    const second = runReturn();
+    const first = runReturn(key1);
+    const second = runReturn(key2);
     try {
       await new Promise((resolve) => setTimeout(resolve, 150));
       expect(completed).toBe(0);
@@ -211,6 +221,53 @@ describe('D8-P0 isolated CI PostgreSQL return concurrency and A -> B ledger', ()
     expect((rejections[0] as { ok: false; error: any }).error).toMatchObject({
       statusCode: 400,
     });
+
+    // Replaying a committed return with the same key must return the original
+    // receipt, even after the BorrowRequest itself has become RETURNED.
+    const winningIndex = outcomes.findIndex((x) => x.ok);
+    const winningKey = winningIndex === 0 ? key1 : key2;
+    const winningReturn = outcomes[winningIndex] as {
+      ok: true;
+      result: { returnNumber: string };
+    };
+    const replay = await borrowService.returnBorrowRequest(
+      created.requestId, input, operator, winningKey
+    );
+    expect(replay.returnNumber).toBe(winningReturn.result.returnNumber);
+
+    // Same key, different meaning is an error, not a new business write.
+    await expect(borrowService.returnBorrowRequest(
+      created.requestId,
+      { items: [{ ...input.items[0], returnedQuantity: 1 }] },
+      operator,
+      winningKey
+    )).rejects.toMatchObject({ statusCode: 409 });
+
+    const app = createApp();
+    const token = jwt.sign({
+      id: operator.id,
+      email: operator.email,
+      role: operator.role,
+      fullName: operator.fullName,
+    }, env.JWT_SECRET, { expiresIn: '1h' });
+
+    const readStatus = await httpRequest(app)
+      .get(`/api/v1/borrow-requests/${created.requestId}/return-idempotency/${winningKey}`)
+      .set('Authorization', `Bearer ${token}`);
+    expect(readStatus.status).toBe(200);
+    expect(readStatus.body.data).toMatchObject({
+      status: 'COMPLETED',
+      confirmed: true,
+      returnNumber: winningReturn.result.returnNumber,
+    });
+    const anonymousStatus = await httpRequest(app)
+      .get(`/api/v1/borrow-requests/${created.requestId}/return-idempotency/${winningKey}`);
+    expect(anonymousStatus.status).toBe(401);
+    const missingKey = await httpRequest(app)
+      .post(`/api/v1/borrow-requests/${created.requestId}/return`)
+      .set('Authorization', `Bearer ${token}`)
+      .send(input);
+    expect(missingKey.status).toBe(428);
 
     const [origin, destination, request, detail, returnCount, movements, auditCount] = await Promise.all([
       prisma.stockBalance.findUnique({

@@ -14,6 +14,8 @@ import {
   queryBorrowRequestsSchema,
 } from '@acm/shared';
 import { borrowService } from './borrow.service';
+import { idempotencyService } from '../inventory/idempotency.service';
+import { prisma } from '../../config/database';
 
 export const borrowRouter = Router();
 
@@ -199,14 +201,63 @@ borrowRouter.post(
         throw new AppError('Dữ liệu hoàn trả không hợp lệ', 422, parsed.error.issues);
       }
 
+      const idempotencyKey = req.get('Idempotency-Key');
+      if (!idempotencyKey) {
+        throw new AppError('Thiếu Idempotency-Key bắt buộc cho thao tác hoàn trả', 428);
+      }
+      if (!idempotencyService.validateKey(idempotencyKey)) {
+        throw new AppError('Idempotency-Key phải có 8-64 ký tự chữ, số, - hoặc _', 422);
+      }
+
       const result = await borrowService.returnBorrowRequest(
         req.params.id,
         parsed.data,
-        req.user!
+        req.user!,
+        idempotencyKey
       );
       return sendSuccess(res, result, 'Xác nhận hoàn trả linh kiện thành công');
     } catch (err) {
       next(err);
+    }
+  }
+);
+
+/**
+ * GET /api/v1/borrow-requests/:id/return-idempotency/:key
+ * Authenticated, same-actor read-only reconciliation after ambiguous 504.
+ * Never triggers a second business write.
+ */
+borrowRouter.get(
+  '/:id/return-idempotency/:key',
+  authenticate,
+  authorizeRoles(UserRole.ADMIN, UserRole.LAB_MANAGER, UserRole.TECHNICIAN),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const key = req.params.key;
+      if (!idempotencyService.validateKey(key)) {
+        throw new AppError('Idempotency-Key không hợp lệ', 422);
+      }
+      const record = await prisma.idempotencyRecord.findUnique({ where: { key } });
+      const endpoint = `/api/v1/borrow-requests/${req.params.id}/return`;
+
+      // Do not reveal the existence of a key belonging to another user,
+      // another borrow request or a different API operation.
+      if (!record || record.userId !== req.user!.id || record.endpoint !== endpoint) {
+        throw new AppError('Không tìm thấy thông tin đối soát thuộc quyền truy cập', 404);
+      }
+
+      const stored = record.responseBody as { returnNumber?: string } | null;
+      return res.status(200).json({
+        success: true,
+        data: {
+          status: record.status,
+          returnNumber: record.status === 'COMPLETED'
+            ? stored?.returnNumber ?? null : null,
+          confirmed: record.status === 'COMPLETED' && Boolean(stored?.returnNumber),
+        },
+      });
+    } catch (error) {
+      next(error);
     }
   }
 );
