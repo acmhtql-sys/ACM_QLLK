@@ -128,6 +128,25 @@ describe('Stage 4C-2B — physical evidence structural checks', () => {
   it('MIG-F05: never lowercases or rewrites evidence identifiers', () => {
     expect(assertPhysicalEvidenceReference('evidence-01')).toBe('evidence-01');
   });
+  it('BIZ01-F07: rejects non-ASCII letters and emoji from evidence identifiers', () => {
+    for (const ref of ['BÀN-GIAO-1', 'ĐT-01', 'ACM-📦-1']) {
+      expect(() => assertPhysicalEvidenceReference(ref)).toThrow();
+    }
+  });
+  it('BIZ01-F08: rejects unsupported punctuation, spaces and invalid prefixes', () => {
+    for (const ref of ['A B', 'ABC@X', 'ABC#1', '.ABC', '-ABC', '_ABC', '/ABC']) {
+      expect(() => assertPhysicalEvidenceReference(ref)).toThrow();
+    }
+  });
+  it('BIZ01-F09: accepts exact approved ASCII separators and the 128-character boundary', () => {
+    expect(assertPhysicalEvidenceReference('A._:/-012')).toBe('A._:/-012');
+    expect(assertPhysicalEvidenceReference('A' + 'x'.repeat(127))).toHaveLength(128);
+  });
+  it('BIZ01-F10: accepts upper/lower case without prematurely choosing persisted canonicalization', () => {
+    expect(assertPhysicalEvidenceReference('ACM-001')).toBe('ACM-001');
+    expect(assertPhysicalEvidenceReference('acm-001')).toBe('acm-001');
+    // Actual case-insensitive uniqueness, scope and DB index remain gated by DBA.
+  });
   it('MIG-F06: a syntactically valid code is NOT proof of physical handover', () => {
     // Issuer validation and independent verification are explicit release gates,
     // and this foundation intentionally exposes no "verified" indicator.
