@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { mkdtemp, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { tmpdir } from 'node:os';
 import { LocalOnlyDiskItemImageStorage } from '../src/modules/storage/image-storage.local';
@@ -93,6 +93,26 @@ describe('L4 opt-in local image storage (ephemeral CI filesystem only)', () => {
     await symlink(elsewhere, file);
     await expect(store.readForItem(ITEM, record.id))
       .rejects.toThrow('LOCAL_IMAGE_STORAGE_UNSAFE_RECORD');
+  });
+
+  it('refuses a symlink as the storage root instead of writing to its target', async () => {
+    const target = path.join(root, 'target');
+    await mkdir(target);
+    const alias = path.join(root, 'alias');
+    await symlink(target, alias, 'dir');
+    const store = new LocalOnlyDiskItemImageStorage(alias);
+    await expect(store.save(image())).rejects.toThrow('LOCAL_IMAGE_STORAGE_UNSAFE_ROOT');
+    expect(await readdir(target)).toEqual([]);
+  });
+
+  it('refuses a symlink in any ancestor before descending and creating folders', async () => {
+    const target = path.join(root, 'original');
+    await mkdir(target);
+    const alias = path.join(root, 'alias');
+    await symlink(target, alias, 'dir');
+    const store = new LocalOnlyDiskItemImageStorage(path.join(alias, 'nested', 'images'));
+    await expect(store.save(image())).rejects.toThrow('LOCAL_IMAGE_STORAGE_UNSAFE_ROOT');
+    expect(await readdir(target)).toEqual([]);
   });
 
   it('refuses cloud staging even with test NODE_ENV', () => {
