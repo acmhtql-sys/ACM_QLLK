@@ -149,13 +149,17 @@ export function nextOperationPolicy(state: ReturnOperationState): 'BLOCKED' | 'P
 }
 
 /**
- * Structural guard for evidence identifiers. Does not prove an authentic handover:
- * the issuer / verifier process is a separate, not-yet-approved release gate.
- * A physical evidence identifier is required at PREPARED in the candidate schema.
+ * BIZ-01 owner-approved ASCII format (2026-10-29):
+ * ^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$, 1-128 characters.
+ * Source: docs/stage4c-owner-business-policy-proposal-20261029.md (PR #22).
+ * This only checks syntax; it does NOT establish real physical receipt, issuer
+ * authority, case-insensitive uniqueness, global/borrow scope, or DBA signoff.
+ * Persisting original case versus a normalized comparison key is still a DBA
+ * design gate, so do not silently normalize the caller's evidence string here.
  */
+const APPROVED_EVIDENCE_FORMAT = /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$/;
 export function assertPhysicalEvidenceReference(value: unknown): string {
-  if (typeof value !== 'string' || value.length < 1 || value.length > 128 ||
-      value.trim() !== value || /[\u0000-\u001f\u007f]/.test(value)) {
+  if (typeof value !== 'string' || !APPROVED_EVIDENCE_FORMAT.test(value)) {
     throw new AppError('Mã chứng từ bàn giao vật lý không hợp lệ', 422);
   }
   return value;
