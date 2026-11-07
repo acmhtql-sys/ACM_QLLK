@@ -45,9 +45,6 @@ jobs:
           echo "RC5_CONFLICT_FILES_BEGIN"
           cat "$RUNNER_TEMP/rc5-conflicts.txt"
           echo "RC5_CONFLICT_FILES_END"
-          echo "RC5_UNMERGED_STAGES_BEGIN"
-          git ls-files -u | sed -E 's/^[0-9]+ ([a-f0-9]{40}) [123]/stage \2 SHA_REDACTED/' | head -100 || true
-          echo "RC5_UNMERGED_STAGES_END"
           echo "RC5_AUTO_MERGED_PATHS_BEGIN"
           git diff --cached --name-only | head -120
           echo "RC5_AUTO_MERGED_PATHS_END"
@@ -72,4 +69,10 @@ jobs:
             git merge --abort
           fi
           echo "RC5_PREVIEW_CLEANED=true"
-          # A successful report is NOT a successful release merge; keep status non-blocking.
+          # Unresolved merge conflicts are a blocking CI gate, not SUCCESS.
+          unresolved="$(wc -l < "$RUNNER_TEMP/rc5-conflicts.txt")"
+          if [ "$code" -ne 0 ] || [ "$unresolved" -ne 0 ]; then
+            echo "::error::RC5_CONSOLIDATION_BLOCKED: merge exited $code with $unresolved file conflicts. See the conflict matrix; no remote branches were changed."
+            exit 1
+          fi
+          echo "RC5_CONFLICT_FREE_ONLY__STILL_NOT_RELEASE_APPROVED"
