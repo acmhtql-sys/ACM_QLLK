@@ -1,0 +1,40 @@
+name: ACM P3-G Isolated Mock Browser Acceptance
+
+on:
+  pull_request:
+    branches:
+      - codex/p3-staging-readonly-deployment-20261107
+
+permissions:
+  contents: read
+
+jobs:
+  browser-mock:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      CI: 'true'
+      # These flags are limited to an isolated localhost mock build in this CI job.
+      # They MUST NOT be exported to Vercel/Render/any live environment.
+      VITE_API_BASE_URL: http://127.0.0.1:4174/api/v1
+      VITE_ENABLE_LOCATION_WRITES: 'false'
+      VITE_ENABLE_STOCK_TRANSACTION_WRITES: 'true'
+      VITE_ENABLE_STOCK_ADJUSTMENT: 'true'
+    steps:
+      - name: Checkout PR
+        uses: actions/checkout@v4
+      - name: Install Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Install verified lockfile (no scripts)
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Build shared and isolated mock frontend
+        run: |
+          npm run build:shared
+          npm run build:web
+      - name: Install isolated Chromium for Playwright
+        run: npx playwright install --with-deps chromium
+      - name: Run default-deny mock browser suite (no real backend)
+        run: npm run test:e2e:mock --workspace=@acm/web

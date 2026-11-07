@@ -31,7 +31,7 @@ stockTransactionsRouter.get(
     try {
       const parsedQuery = queryStockTransactionsSchema.safeParse(req.query);
       if (!parsedQuery.success) {
-        throw new AppError('Tham số truy vấn giao dịch kho không hợp lệ', 422, parsedQuery.error.errors);
+        throw new AppError('Tham số truy vấn giao dịch kho không hợp lệ', 422, parsedQuery.error.issues);
       }
 
       const result = await stockTransactionsService.listTransactions(parsedQuery.data);
@@ -122,7 +122,7 @@ stockTransactionsRouter.post(
     try {
       const parsedBody = importStockSchema.safeParse(req.body);
       if (!parsedBody.success) {
-        throw new AppError('Dữ liệu nhập kho không hợp lệ', 422, parsedBody.error.errors);
+        throw new AppError('Dữ liệu nhập kho không hợp lệ', 422, parsedBody.error.issues);
       }
 
       const userId = req.user!.id;
@@ -161,7 +161,7 @@ stockTransactionsRouter.post(
     try {
       const parsedBody = exportStockSchema.safeParse(req.body);
       if (!parsedBody.success) {
-        throw new AppError('Dữ liệu xuất kho không hợp lệ', 422, parsedBody.error.errors);
+        throw new AppError('Dữ liệu xuất kho không hợp lệ', 422, parsedBody.error.issues);
       }
 
       const userId = req.user!.id;
@@ -200,7 +200,7 @@ stockTransactionsRouter.post(
     try {
       const parsedBody = transferStockSchema.safeParse(req.body);
       if (!parsedBody.success) {
-        throw new AppError('Dữ liệu điều chuyển kho không hợp lệ', 422, parsedBody.error.errors);
+        throw new AppError('Dữ liệu điều chuyển kho không hợp lệ', 422, parsedBody.error.issues);
       }
 
       const userId = req.user!.id;
@@ -239,7 +239,7 @@ stockTransactionsRouter.post(
     try {
       const parsedBody = adjustStockSchemaV2.safeParse(req.body);
       if (!parsedBody.success) {
-        throw new AppError('Dữ liệu điều chỉnh tồn kho không hợp lệ (yêu cầu snapshot tồn kho V2)', 422, parsedBody.error.errors);
+        throw new AppError('Dữ liệu điều chỉnh tồn kho không hợp lệ (yêu cầu snapshot tồn kho V2)', 422, parsedBody.error.issues);
       }
 
       const userId = req.user!.id;

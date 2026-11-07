@@ -32,19 +32,19 @@ export const SYNTHETIC_USERS = {
 };
 
 export const SYNTHETIC_CATEGORIES = [
-  { id: 'cat-01', code: 'MCU', name: 'Vi điều khiển (Microcontrollers)', description: 'Arduino, ESP32, STM32' },
-  { id: 'cat-02', code: 'SNS', name: 'Cảm biến (Sensors)', description: 'Nhiệt độ, khoảng cách, siêu âm' },
-  { id: 'cat-03', code: 'ACT', name: 'Động cơ & Cơ cấu chấp hành', description: 'Servo, Stepper, DC Motor' },
-  { id: 'cat-04', code: 'PAS', name: 'Linh kiện thụ động', description: 'Điện trở, tụ điện, cuộn cảm' },
+  { id: '30000000-0000-4000-8000-000000000001', code: 'MCU', name: 'Vi điều khiển (Microcontrollers)', description: 'Arduino, ESP32, STM32' },
+  { id: '30000000-0000-4000-8000-000000000002', code: 'SNS', name: 'Cảm biến (Sensors)', description: 'Nhiệt độ, khoảng cách, siêu âm' },
+  { id: '30000000-0000-4000-8000-000000000003', code: 'ACT', name: 'Động cơ & Cơ cấu chấp hành', description: 'Servo, Stepper, DC Motor' },
+  { id: '30000000-0000-4000-8000-000000000004', code: 'PAS', name: 'Linh kiện thụ động', description: 'Điện trở, tụ điện, cuộn cảm' },
 ];
 
 export const SYNTHETIC_ITEMS = [
   {
-    id: 'itm-01',
+    id: '10000000-0000-4000-8000-000000000001',
     code: 'ARD-UNO-R3',
     name: 'Arduino Uno R3',
     type: 'EQUIPMENT',
-    categoryId: 'cat-01',
+    categoryId: '30000000-0000-4000-8000-000000000001',
     unit: 'Cái',
     minStockAlert: 5,
     isActive: true,
@@ -53,11 +53,11 @@ export const SYNTHETIC_ITEMS = [
     category: SYNTHETIC_CATEGORIES[0],
   },
   {
-    id: 'itm-02',
+    id: '10000000-0000-4000-8000-000000000002',
     code: 'ESP32-WROOM',
     name: 'Module Wifi ESP32 Wroom-32',
     type: 'COMPONENT',
-    categoryId: 'cat-01',
+    categoryId: '30000000-0000-4000-8000-000000000001',
     unit: 'Cái',
     minStockAlert: 10,
     isActive: true,
@@ -66,11 +66,11 @@ export const SYNTHETIC_ITEMS = [
     category: SYNTHETIC_CATEGORIES[0],
   },
   {
-    id: 'itm-03',
+    id: '10000000-0000-4000-8000-000000000003',
     code: 'SRV-SG90',
     name: 'Động cơ Servo Mini SG90',
     type: 'COMPONENT',
-    categoryId: 'cat-03',
+    categoryId: '30000000-0000-4000-8000-000000000003',
     unit: 'Cái',
     minStockAlert: 8,
     isActive: true,
@@ -79,11 +79,11 @@ export const SYNTHETIC_ITEMS = [
     category: SYNTHETIC_CATEGORIES[2],
   },
   {
-    id: 'itm-04',
+    id: '10000000-0000-4000-8000-000000000004',
     code: 'RES-10K',
     name: 'Điện trở 10k Ohm 1/4W',
     type: 'CONSUMABLE',
-    categoryId: 'cat-04',
+    categoryId: '30000000-0000-4000-8000-000000000004',
     unit: 'Con',
     minStockAlert: 50,
     isActive: true,
@@ -92,11 +92,11 @@ export const SYNTHETIC_ITEMS = [
     category: SYNTHETIC_CATEGORIES[3],
   },
   {
-    id: 'itm-05',
+    id: '10000000-0000-4000-8000-000000000005',
     code: 'OLD-RASPI-2',
     name: 'Raspberry Pi 2 Model B (Hỏng/Ngưng dùng)',
     type: 'EQUIPMENT',
-    categoryId: 'cat-01',
+    categoryId: '30000000-0000-4000-8000-000000000001',
     unit: 'Cái',
     minStockAlert: 0,
     isActive: false, // Inactive item
@@ -109,7 +109,7 @@ export const SYNTHETIC_ITEMS = [
 // Locations strictly conforming to WAREHOUSE -> RACK -> SHELF -> BIN
 export const SYNTHETIC_LOCATIONS = [
   {
-    id: 'loc-wh-01',
+    id: '20000000-0000-4000-8000-000000000001',
     code: 'WH-MAIN',
     name: 'Kho Tổng Lab Robotics',
     type: 'WAREHOUSE' as const,
@@ -117,35 +117,35 @@ export const SYNTHETIC_LOCATIONS = [
     isActive: true,
   },
   {
-    id: 'loc-rk-01',
+    id: '20000000-0000-4000-8000-000000000002',
     code: 'RACK-A',
     name: 'Dãy Kệ A - Linh kiện bán dẫn',
     type: 'RACK' as const,
-    parentId: 'loc-wh-01',
+    parentId: '20000000-0000-4000-8000-000000000001',
     isActive: true,
   },
   {
-    id: 'loc-sh-01',
+    id: '20000000-0000-4000-8000-000000000003',
     code: 'SHELF-A1',
     name: 'Tầng Kệ A1',
     type: 'SHELF' as const,
-    parentId: 'loc-rk-01',
+    parentId: '20000000-0000-4000-8000-000000000002',
     isActive: true,
   },
   {
-    id: 'loc-bn-01',
+    id: '20000000-0000-4000-8000-000000000004',
     code: 'BIN-A1-01',
     name: 'Hộp Ngăn A1-01 (Vi điều khiển)',
     type: 'BIN' as const,
-    parentId: 'loc-sh-01',
+    parentId: '20000000-0000-4000-8000-000000000003',
     isActive: true,
   },
   {
-    id: 'loc-bn-02',
+    id: '20000000-0000-4000-8000-000000000005',
     code: 'BIN-A1-02',
     name: 'Hộp Ngăn A1-02 (Cảm biến)',
     type: 'BIN' as const,
-    parentId: 'loc-sh-01',
+    parentId: '20000000-0000-4000-8000-000000000003',
     isActive: true,
   },
 ];
@@ -173,8 +173,8 @@ export const SYNTHETIC_LOCATION_HIERARCHY = [
 export const SYNTHETIC_BALANCES = [
   {
     id: 'bal-01',
-    itemId: 'itm-01',
-    locationId: 'loc-bn-01',
+    itemId: '10000000-0000-4000-8000-000000000001',
+    locationId: '20000000-0000-4000-8000-000000000004',
     onHand: 25,
     reserved: 3,
     quarantined: 2,
@@ -186,8 +186,8 @@ export const SYNTHETIC_BALANCES = [
   },
   {
     id: 'bal-02',
-    itemId: 'itm-02',
-    locationId: 'loc-bn-01',
+    itemId: '10000000-0000-4000-8000-000000000002',
+    locationId: '20000000-0000-4000-8000-000000000004',
     onHand: 40,
     reserved: 2,
     quarantined: 1,
@@ -199,8 +199,8 @@ export const SYNTHETIC_BALANCES = [
   },
   {
     id: 'bal-03',
-    itemId: 'itm-03',
-    locationId: 'loc-bn-02',
+    itemId: '10000000-0000-4000-8000-000000000003',
+    locationId: '20000000-0000-4000-8000-000000000005',
     onHand: 30,
     reserved: 5,
     quarantined: 1,
@@ -212,8 +212,8 @@ export const SYNTHETIC_BALANCES = [
   },
   {
     id: 'bal-04',
-    itemId: 'itm-04',
-    locationId: 'loc-bn-02',
+    itemId: '10000000-0000-4000-8000-000000000004',
+    locationId: '20000000-0000-4000-8000-000000000005',
     onHand: 200,
     reserved: 10,
     quarantined: 0,
@@ -296,8 +296,8 @@ export const SYNTHETIC_TRANSACTION_DETAILS: Record<string, any> = {
       {
         id: 'det-01',
         stockTransactionId: 'tx-mock-01',
-        itemId: 'itm-01',
-        locationId: 'loc-bn-01',
+        itemId: '10000000-0000-4000-8000-000000000001',
+        locationId: '20000000-0000-4000-8000-000000000004',
         quantity: 10,
         unitCost: 150000,
         item: SYNTHETIC_ITEMS[0],
@@ -308,8 +308,8 @@ export const SYNTHETIC_TRANSACTION_DETAILS: Record<string, any> = {
       {
         id: 'det-02',
         stockTransactionId: 'tx-mock-01',
-        itemId: 'itm-02',
-        locationId: 'loc-bn-01',
+        itemId: '10000000-0000-4000-8000-000000000002',
+        locationId: '20000000-0000-4000-8000-000000000004',
         quantity: 5,
         unitCost: 95000,
         item: SYNTHETIC_ITEMS[1],

@@ -1,10 +1,10 @@
 import { Request, Response, NextFunction } from 'express';
-import { AnyZodObject } from 'zod';
+import { ZodObject } from 'zod';
 
 export function validateRequest(schema: {
-  body?: AnyZodObject;
-  query?: AnyZodObject;
-  params?: AnyZodObject;
+  body?: ZodObject;
+  query?: ZodObject;
+  params?: ZodObject;
 }) {
   return async (req: Request, _res: Response, next: NextFunction) => {
     try {
@@ -12,10 +12,10 @@ export function validateRequest(schema: {
         req.body = await schema.body.parseAsync(req.body);
       }
       if (schema.query) {
-        req.query = await schema.query.parseAsync(req.query);
+        req.query = (await schema.query.parseAsync(req.query)) as unknown as Request['query'];
       }
       if (schema.params) {
-        req.params = await schema.params.parseAsync(req.params);
+        req.params = (await schema.params.parseAsync(req.params)) as unknown as Request['params'];
       }
       next();
     } catch (error) {

@@ -1060,7 +1060,7 @@ describe('Shared Validators Tests', () => {
       const result = adjustStockSchemaV2.safeParse(invalidPayload);
       expect(result.success).toBe(false);
       if (!result.success) {
-        const errors = result.error.errors;
+        const errors = result.error.issues;
         expect(errors.some((e) => e.path.includes('expectedOnHand'))).toBe(true);
       }
     });
@@ -1160,7 +1160,7 @@ describe('Shared Validators Tests', () => {
       const result = adjustStockSchemaV2.safeParse(noLocationPayload);
       expect(result.success).toBe(false);
       if (!result.success) {
-        expect(result.error.errors.some((e) => e.path.includes('locationId'))).toBe(true);
+        expect(result.error.issues.some((e) => e.path.includes('locationId'))).toBe(true);
       }
     });
   });
@@ -1191,7 +1191,7 @@ describe('Shared Validators Tests', () => {
         const result = createBorrowRequestSchema.safeParse(payload);
         expect(result.success).toBe(false);
         if (!result.success) {
-          expect(result.error.errors.some((e) => e.path.includes('expectedReturnDate'))).toBe(true);
+          expect(result.error.issues.some((e) => e.path.includes('expectedReturnDate'))).toBe(true);
         }
       });
 

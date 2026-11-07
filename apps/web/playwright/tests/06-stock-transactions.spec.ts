@@ -103,20 +103,20 @@ test.describe('Phân hệ 6: Stock Transactions & Validation Guards (TX)', () =>
     await expect(modal).toBeVisible();
 
     // Line 0: Select Item 1 (ARD-UNO-R3) and Location 1 (BIN-A1-01)
-    await page.selectOption('[data-testid="select-item-0"]', 'itm-01');
-    await page.selectOption('[data-testid="select-location-0"]', 'loc-bn-01');
+    await page.selectOption('[data-testid="select-item-0"]', '10000000-0000-4000-8000-000000000001');
+    await page.selectOption('[data-testid="select-location-0"]', '20000000-0000-4000-8000-000000000004');
     await page.fill('[data-testid="input-qty-0"]', '5');
 
     // Add Line 1
     await page.click('[data-testid="btn-add-line"]');
 
     // Line 1: Select same Item 1 (ARD-UNO-R3) and same Location 1 (BIN-A1-01)
-    await page.selectOption('[data-testid="select-item-1"]', 'itm-01');
-    await page.selectOption('[data-testid="select-location-1"]', 'loc-bn-01');
+    await page.selectOption('[data-testid="select-item-1"]', '10000000-0000-4000-8000-000000000001');
+    await page.selectOption('[data-testid="select-location-1"]', '20000000-0000-4000-8000-000000000004');
     await page.fill('[data-testid="input-qty-1"]', '3');
 
     // Submit form
-    await page.click('[data-testid="btn-submit-import"]');
+    await page.click('[data-testid="btn-review-import"]');
 
     // Expect client validation error to appear
     const errorContainer = page.locator('[data-testid="client-validation-errors"]');
@@ -137,15 +137,15 @@ test.describe('Phân hệ 6: Stock Transactions & Validation Guards (TX)', () =>
     // Fill valid export reason
     await page.fill('[data-testid="export-reason-input"]', 'Xuất linh kiện phục vụ đề tài nghiên cứu Robot');
 
-    // Line 0: Select Item 1 (ARD-UNO-R3) with Available = 18 at loc-bn-01
-    await page.selectOption('[data-testid="select-item-0"]', 'itm-01');
-    await page.selectOption('[data-testid="select-location-0"]', 'loc-bn-01');
+    // Line 0: Select Item 1 (ARD-UNO-R3) with Available = 18 at 20000000-0000-4000-8000-000000000004
+    await page.selectOption('[data-testid="select-item-0"]', '10000000-0000-4000-8000-000000000001');
+    await page.selectOption('[data-testid="select-location-0"]', '20000000-0000-4000-8000-000000000004');
 
     // Enter quantity = 25 (exceeds available 18)
     await page.fill('[data-testid="input-qty-0"]', '25');
 
     // Submit form
-    await page.click('[data-testid="btn-submit-export"]');
+    await page.click('[data-testid="btn-review-export"]');
 
     // Expect client validation error
     const errorContainer = page.locator('[data-testid="client-validation-errors"]');
@@ -167,13 +167,13 @@ test.describe('Phân hệ 6: Stock Transactions & Validation Guards (TX)', () =>
     await page.fill('[data-testid="transfer-reason-input"]', 'Điều chuyển linh kiện sang trạm thực hành 2');
 
     // Line 0: Select Item 1, Source = BIN-A1-01, Target = BIN-A1-01 (identical)
-    await page.selectOption('[data-testid="select-item-0"]', 'itm-01');
-    await page.selectOption('[data-testid="select-from-location-0"]', 'loc-bn-01');
-    await page.selectOption('[data-testid="select-to-location-0"]', 'loc-bn-01');
+    await page.selectOption('[data-testid="select-item-0"]', '10000000-0000-4000-8000-000000000001');
+    await page.selectOption('[data-testid="select-from-location-0"]', '20000000-0000-4000-8000-000000000004');
+    await page.selectOption('[data-testid="select-to-location-0"]', '20000000-0000-4000-8000-000000000004');
     await page.fill('[data-testid="input-qty-0"]', '2');
 
     // Submit
-    await page.click('[data-testid="btn-submit-transfer"]');
+    await page.click('[data-testid="btn-review-transfer"]');
 
     // Expect client validation error
     const errorContainer = page.locator('[data-testid="client-validation-errors"]');
@@ -193,22 +193,22 @@ test.describe('Phân hệ 6: Stock Transactions & Validation Guards (TX)', () =>
 
     await page.fill('[data-testid="transfer-reason-input"]', 'Điều chuyển linh kiện sang hai vị trí khác nhau');
 
-    // Line 0: Transfer 12 units of itm-01 from BIN-A1-01 to BIN-A1-02 (Available = 18)
-    await page.selectOption('[data-testid="select-item-0"]', 'itm-01');
-    await page.selectOption('[data-testid="select-from-location-0"]', 'loc-bn-01');
-    await page.selectOption('[data-testid="select-to-location-0"]', 'loc-bn-02');
+    // Line 0: Transfer 12 units of 10000000-0000-4000-8000-000000000001 from BIN-A1-01 to BIN-A1-02 (Available = 18)
+    await page.selectOption('[data-testid="select-item-0"]', '10000000-0000-4000-8000-000000000001');
+    await page.selectOption('[data-testid="select-from-location-0"]', '20000000-0000-4000-8000-000000000004');
+    await page.selectOption('[data-testid="select-to-location-0"]', '20000000-0000-4000-8000-000000000005');
     await page.fill('[data-testid="input-qty-0"]', '12');
 
-    // Add Line 1: Transfer 10 units of SAME itm-01 from SAME BIN-A1-01 to another location
+    // Add Line 1: Transfer 10 units of SAME 10000000-0000-4000-8000-000000000001 from SAME BIN-A1-01 to another location
     // Total transfer = 12 + 10 = 22 > 18 available!
     await page.click('[data-testid="btn-add-line"]');
-    await page.selectOption('[data-testid="select-item-1"]', 'itm-01');
-    await page.selectOption('[data-testid="select-from-location-1"]', 'loc-bn-01');
-    await page.selectOption('[data-testid="select-to-location-1"]', 'loc-sh-01');
+    await page.selectOption('[data-testid="select-item-1"]', '10000000-0000-4000-8000-000000000001');
+    await page.selectOption('[data-testid="select-from-location-1"]', '20000000-0000-4000-8000-000000000004');
+    await page.selectOption('[data-testid="select-to-location-1"]', '20000000-0000-4000-8000-000000000003');
     await page.fill('[data-testid="input-qty-1"]', '10');
 
     // Submit
-    await page.click('[data-testid="btn-submit-transfer"]');
+    await page.click('[data-testid="btn-review-transfer"]');
 
     // Expect Transfer Aggregate Guard error
     const errorContainer = page.locator('[data-testid="client-validation-errors"]');
@@ -229,9 +229,9 @@ test.describe('Phân hệ 6: Stock Transactions & Validation Guards (TX)', () =>
     // Fill valid reason
     await page.fill('[data-testid="adjustment-reason-input"]', 'Kiểm kê kho định kỳ cuối tuần');
 
-    // Line 0: Select itm-01 at loc-bn-01 (onHand = 25)
-    await page.selectOption('[data-testid="select-item-0"]', 'itm-01');
-    await page.selectOption('[data-testid="select-location-0"]', 'loc-bn-01');
+    // Line 0: Select 10000000-0000-4000-8000-000000000001 at 20000000-0000-4000-8000-000000000004 (onHand = 25)
+    await page.selectOption('[data-testid="select-item-0"]', '10000000-0000-4000-8000-000000000001');
+    await page.selectOption('[data-testid="select-location-0"]', '20000000-0000-4000-8000-000000000004');
 
     // Enter actual onHand = 25 (delta = 0)
     await page.fill('[data-testid="input-actual-onhand-0"]', '25');
@@ -257,10 +257,10 @@ test.describe('Phân hệ 6: Stock Transactions & Validation Guards (TX)', () =>
 
     await page.fill('[data-testid="adjustment-reason-input"]', 'Kiểm kê xử lý chênh lệch tồn kho');
 
-    // Line 0: Select itm-01 at loc-bn-01
+    // Line 0: Select 10000000-0000-4000-8000-000000000001 at 20000000-0000-4000-8000-000000000004
     // Committed = Reserved (3) + KitAllocated (2) + Quarantined (2) = 7
-    await page.selectOption('[data-testid="select-item-0"]', 'itm-01');
-    await page.selectOption('[data-testid="select-location-0"]', 'loc-bn-01');
+    await page.selectOption('[data-testid="select-item-0"]', '10000000-0000-4000-8000-000000000001');
+    await page.selectOption('[data-testid="select-location-0"]', '20000000-0000-4000-8000-000000000004');
 
     // Enter actual onHand = 3 (less than committed 7)
     await page.fill('[data-testid="input-actual-onhand-0"]', '3');
@@ -276,7 +276,7 @@ test.describe('Phân hệ 6: Stock Transactions & Validation Guards (TX)', () =>
 
   // --- POSITIVE FSM SUBMISSION TESTS (STEP 4B.4B+ ISOLATED MOCK ONLY) ---
 
-  test('E2E-TX-10: FSM Timeout & Ambiguous Outcome xử lý retry nguyên vẹn Idempotency-Key và Payload', async ({
+  test('E2E-TX-10: HTTP 504 giữ nguyên Idempotency-Key, chỉ cho GET status, tuyệt đối không POST lần hai', async ({
     page,
   }) => {
     interface CapturedReq {
@@ -334,6 +334,22 @@ test.describe('Phân hệ 6: Stock Transactions & Validation Guards (TX)', () =>
       return false;
     });
 
+    // GET-only status lookup: a second stock POST is never authorized by a 504.
+    let statusGetCount = 0;
+    registerCustomMockHandler('/api/v1/stock-transactions/idempotency/', async (route, req) => {
+      if (req.method() !== 'GET') return false;
+      statusGetCount++;
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          success: true,
+          data: { status: 'IN_PROGRESS' },
+        }),
+      });
+      return true;
+    });
+
     await page.goto('/transactions');
 
     // 1. Open Import Modal
@@ -349,13 +365,15 @@ test.describe('Phân hệ 6: Stock Transactions & Validation Guards (TX)', () =>
 
     // Fill valid form inputs
     await page.fill('[data-testid="import-notes-input"]', 'Nhập linh kiện thí nghiệm đợt 1');
-    await page.selectOption('[data-testid="select-item-0"]', 'itm-01');
-    await page.selectOption('[data-testid="select-location-0"]', 'loc-bn-01');
+    await page.selectOption('[data-testid="select-item-0"]', '10000000-0000-4000-8000-000000000001');
+    await page.selectOption('[data-testid="select-location-0"]', '20000000-0000-4000-8000-000000000004');
     await page.fill('[data-testid="input-qty-0"]', '5');
     await page.fill('[data-testid="input-cost-0"]', '10000');
 
     // 2. Submit Form
-    await page.click('[data-testid="btn-submit-import"]');
+    await page.click('[data-testid="btn-review-import"]');
+    await expect(page.locator('[data-testid="import-confirmation-step"]')).toBeVisible();
+    await page.click('[data-testid="btn-confirm-submit-import"]');
 
     // 3. Confirm transition to AMBIGUOUS_OUTCOME upon HTTP 504
     const ambiguousBanner = page.locator('[data-testid="ambiguous-state-banner"]');
@@ -364,14 +382,14 @@ test.describe('Phân hệ 6: Stock Transactions & Validation Guards (TX)', () =>
 
     const errorDetail = page.locator('[data-testid="ambiguous-error-detail"]');
     await expect(errorDetail).toBeVisible();
-    await expect(errorDetail).toContainText('Máy chủ phản hồi lỗi nội bộ (5xx)');
+    await expect(errorDetail).toContainText('Gateway Timeout (504)');
 
     // 4. Verify inputs are strictly locked (disabled)
     await expect(page.locator('[data-testid="import-notes-input"]')).toBeDisabled();
     await expect(page.locator('[data-testid="select-item-0"]')).toBeDisabled();
     await expect(page.locator('[data-testid="select-location-0"]')).toBeDisabled();
     await expect(page.locator('[data-testid="input-qty-0"]')).toBeDisabled();
-    await expect(page.locator('[data-testid="btn-submit-import"]')).toBeDisabled();
+    await expect(page.locator('[data-testid="btn-confirm-submit-import"]')).toBeDisabled();
 
     // 5. Verify Idempotency-Key is preserved (NOT rotated)
     const currentKey = await initialKeyInput.inputValue();
@@ -381,33 +399,25 @@ test.describe('Phân hệ 6: Stock Transactions & Validation Guards (TX)', () =>
     expect(capturedRequests.length).toBe(1);
     expect(capturedRequests[0].idempotencyKey).toBe(initialKey);
 
-    // 7. User clicks manual retry ("Thử lại an toàn với cùng khóa")
-    const retryBtn = page.locator('[data-testid="btn-retry-ambiguous"]');
-    await expect(retryBtn).toBeVisible();
-    await retryBtn.click();
+    // 7. User can only query status via GET, never repeat the stock POST.
+    const statusCheckBtn = page.locator('[data-testid="btn-retry-ambiguous"]');
+    await expect(statusCheckBtn).toBeVisible();
+    await statusCheckBtn.click();
 
-    // 8. Verify exactly 2 requests dispatched in total
-    expect(capturedRequests.length).toBe(2);
+    // Backend is still processing: stay ambiguous and preserve the original key.
+    await expect(ambiguousBanner).toBeVisible();
+    await expect(page.locator('[data-testid="ambiguous-error-detail"]')).toContainText('IN_PROGRESS');
+    expect(statusGetCount).toBe(1);
+    expect(capturedRequests).toHaveLength(1);
+    expect(await initialKeyInput.inputValue()).toBe(initialKey);
+    await expect(page.locator('[data-testid="btn-confirm-submit-import"]')).toBeDisabled();
 
-    // 9. Exact verification: endpoint, key, payload, auth
-    const req1 = capturedRequests[0];
-    const req2 = capturedRequests[1];
-
-    expect(req2.url).toBe(req1.url);
-    expect(req2.idempotencyKey).toBe(req1.idempotencyKey);
-    expect(req2.authorization).toBe(req1.authorization);
-    expect(req2.body).toEqual(req1.body);
-    expect(req2.body.items).toHaveLength(1);
-    expect(req2.body.items[0].itemId).toBe('itm-01');
-    expect(req2.body.items[0].quantity).toBe(5);
-
-    // 10. Verify successful completion: modal is dismissed on success
-    await expect(modal).not.toBeVisible();
-
+    // No client-side reissue and no successful dismissal without server proof.
+    await expect(modal).toBeVisible();
     assertZeroUnexpectedViolations();
   });
 
-  test('E2E-TX-11: RECONCILIATION_REQUIRED khóa form, chặn ghi chú rỗng và xử lý 409 IN_PROGRESS an toàn', async ({
+  test('E2E-TX-11: 409 PAYLOAD_MISMATCH khóa form và không cho phép client tự giải phóng đối soát', async ({
     page,
   }) => {
     let callCount = 0;
@@ -458,11 +468,13 @@ test.describe('Phân hệ 6: Stock Transactions & Validation Guards (TX)', () =>
 
     // Fill form and submit
     await page.fill('[data-testid="import-notes-input"]', 'Phiếu nhập đối soát xung đột');
-    await page.selectOption('[data-testid="select-item-0"]', 'itm-02');
-    await page.selectOption('[data-testid="select-location-0"]', 'loc-bn-01');
+    await page.selectOption('[data-testid="select-item-0"]', '10000000-0000-4000-8000-000000000002');
+    await page.selectOption('[data-testid="select-location-0"]', '20000000-0000-4000-8000-000000000004');
     await page.fill('[data-testid="input-qty-0"]', '3');
 
-    await page.click('[data-testid="btn-submit-import"]');
+    await page.click('[data-testid="btn-review-import"]');
+    await expect(page.locator('[data-testid="import-confirmation-step"]')).toBeVisible();
+    await page.click('[data-testid="btn-confirm-submit-import"]');
 
     // Confirm transition to RECONCILIATION_REQUIRED
     const reconcileBanner = page.locator('[data-testid="reconciliation-banner"]');
@@ -473,10 +485,10 @@ test.describe('Phân hệ 6: Stock Transactions & Validation Guards (TX)', () =>
 
     const errorDetail = page.locator('[data-testid="reconciliation-error-detail"]');
     await expect(errorDetail).toBeVisible();
-    await expect(errorDetail).toContainText('Phát hiện xung đột Idempotency');
+    await expect(errorDetail).toContainText('Không được tái sử dụng khóa cho ý định nghiệp vụ mới');
 
     // Form submission must remain strictly disabled
-    await expect(page.locator('[data-testid="btn-submit-import"]')).toBeDisabled();
+    await expect(page.locator('[data-testid="btn-confirm-submit-import"]')).toBeDisabled();
 
     // Key must NOT be auto-rotated
     expect(await keyInput.inputValue()).toBe(initialKey);
@@ -490,7 +502,7 @@ test.describe('Phân hệ 6: Stock Transactions & Validation Guards (TX)', () =>
 
     const errorMsg = page.locator('[data-testid="reconcile-error-msg"]');
     await expect(errorMsg).toBeVisible();
-    await expect(errorMsg).toContainText('tối thiểu 5 ký tự');
+    await expect(errorMsg).toContainText('đã bị vô hiệu hóa vì lý do an toàn');
     await expect(reconcileBanner).toBeVisible(); // Still in reconciliation state!
 
     // Attempt with note of length < 5 (e.g. "abc") -> Rejected
@@ -499,35 +511,50 @@ test.describe('Phân hệ 6: Stock Transactions & Validation Guards (TX)', () =>
     await expect(errorMsg).toBeVisible();
     await expect(reconcileBanner).toBeVisible(); // Still in reconciliation state!
 
-    // --- PHẦN B: 409 IN_PROGRESS -> AMBIGUOUS_OUTCOME (NOT CONFIRMED_FAILURE) ---
-    simulatedConflictType = 'IN_PROGRESS';
-    await page.goto('/transactions');
-    await page.click('[data-testid="btn-open-import"]');
-    await expect(modal).toBeVisible();
-
-    await page.fill('[data-testid="import-notes-input"]', 'Phiếu nhập đang xử lý concurrent');
-    await page.selectOption('[data-testid="select-item-0"]', 'itm-01');
-    await page.selectOption('[data-testid="select-location-0"]', 'loc-bn-01');
-    await page.fill('[data-testid="input-qty-0"]', '2');
-
-    await page.click('[data-testid="btn-submit-import"]');
-
-    // In-Progress must transition to AMBIGUOUS_OUTCOME, NOT CONFIRMED_FAILURE
-    const ambiguousBanner = page.locator('[data-testid="ambiguous-state-banner"]');
-    await expect(ambiguousBanner).toBeVisible();
-    await expect(page.locator('[data-testid="import-error-banner"]')).not.toBeVisible();
-
-    const inProgressDetail = page.locator('[data-testid="ambiguous-error-detail"]');
-    await expect(inProgressDetail).toContainText('đang được xử lý trên máy chủ');
-
+    // Even a short user-entered note cannot serve as backend authority.
+    expect(callCount).toBe(1);
+    await expect(page.locator('[data-testid="btn-confirm-submit-import"]')).toBeDisabled();
     assertZeroUnexpectedViolations();
   });
 
-  test('E2E-TX-12: [MOCK-ONLY – LIVE SAFETY GAP] Thoát trạng thái đối soát với ghi chú hợp lệ quay về DRAFT với key mới', async ({
+  test('E2E-TX-11B: 409 IN_PROGRESS remains ambiguous without duplicate POST', async ({ page }) => {
+    let postCount = 0;
+    registerCustomMockHandler('/api/v1/stock-transactions/import', async (route, req) => {
+      if (req.method() !== 'POST') return false;
+      postCount++;
+      await route.fulfill({
+        status: 409,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          success: false,
+          message: 'Yêu cầu với Idempotency-Key này đang được xử lý trên máy chủ. Vui lòng chờ.',
+        }),
+      });
+      return true;
+    });
+    await page.goto('/transactions');
+    await page.click('[data-testid="btn-open-import"]');
+    await page.fill('[data-testid="import-notes-input"]', 'Phiếu nhập đang xử lý concurrent');
+    await page.selectOption('[data-testid="select-item-0"]', '10000000-0000-4000-8000-000000000001');
+    await page.selectOption('[data-testid="select-location-0"]', '20000000-0000-4000-8000-000000000004');
+    await page.fill('[data-testid="input-qty-0"]', '2');
+    await page.click('[data-testid="btn-review-import"]');
+    await expect(page.locator('[data-testid="import-confirmation-step"]')).toBeVisible();
+    await page.click('[data-testid="btn-confirm-submit-import"]');
+
+    await expect(page.locator('[data-testid="ambiguous-state-banner"]')).toBeVisible();
+    await expect(page.locator('[data-testid="ambiguous-error-detail"]')).toContainText('đang được xử lý trên máy chủ');
+    await expect(page.locator('[data-testid="import-error-banner"]')).not.toBeVisible();
+    await expect(page.locator('[data-testid="btn-confirm-submit-import"]')).toBeDisabled();
+    expect(postCount).toBe(1);
+    assertZeroUnexpectedViolations();
+  });
+
+  test('E2E-TX-12: Client evidence cannot unlock reconciliation or rotate Idempotency-Key', async ({
     page,
   }) => {
-    // Note: Live Safety Gap acknowledged: in real production, a client note of >= 5 chars
-    // is NOT proof of unexecuted state on the backend. This test solely verifies client FSM UI transitions.
+    // Client-provided evidence is not authoritative. The safe state must remain locked.
+    // No real backend or database operation is performed in this browser test.
     registerCustomMockHandler('/api/v1/stock-transactions/import', async (route, req) => {
       if (req.method() === 'POST') {
         await route.fulfill({
@@ -556,10 +583,12 @@ test.describe('Phân hệ 6: Stock Transactions & Validation Guards (TX)', () =>
 
     // 2. Submit form to trigger 409 Conflict
     await page.fill('[data-testid="import-notes-input"]', 'Kiểm thử thoát đối soát');
-    await page.selectOption('[data-testid="select-item-0"]', 'itm-03');
-    await page.selectOption('[data-testid="select-location-0"]', 'loc-bn-02');
+    await page.selectOption('[data-testid="select-item-0"]', '10000000-0000-4000-8000-000000000003');
+    await page.selectOption('[data-testid="select-location-0"]', '20000000-0000-4000-8000-000000000005');
     await page.fill('[data-testid="input-qty-0"]', '1');
-    await page.click('[data-testid="btn-submit-import"]');
+    await page.click('[data-testid="btn-review-import"]');
+    await expect(page.locator('[data-testid="import-confirmation-step"]')).toBeVisible();
+    await page.click('[data-testid="btn-confirm-submit-import"]');
 
     // 3. Confirm in RECONCILIATION_REQUIRED
     const reconcileBanner = page.locator('[data-testid="reconciliation-banner"]');
@@ -578,19 +607,13 @@ test.describe('Phân hệ 6: Stock Transactions & Validation Guards (TX)', () =>
     // 6. Click "Xác nhận kết quả đối chiếu"
     await page.click('[data-testid="btn-resolve-reconciliation"]');
 
-    // 7. Verify UI transitions back to DRAFT:
-    // - Reconciliation banner disappears
-    await expect(reconcileBanner).not.toBeVisible();
-
-    // - Form generates a brand NEW Idempotency-Key
-    const newKey = await keyInput.inputValue();
-    expect(newKey).toBeTruthy();
-    expect(newKey).not.toBe(oldKey);
-
-    // - Inputs are unlocked for editing in new DRAFT state
-    await expect(page.locator('[data-testid="import-notes-input"]')).toBeEnabled();
-    await expect(page.locator('[data-testid="select-item-0"]')).toBeEnabled();
-    await expect(page.locator('[data-testid="btn-submit-import"]')).toBeEnabled();
+    // 7. Fail closed: do not trust unverified client-provided evidence.
+    await expect(reconcileBanner).toBeVisible();
+    await expect(page.locator('[data-testid="reconcile-error-msg"]')).toContainText('đã bị vô hiệu hóa vì lý do an toàn');
+    expect(await keyInput.inputValue()).toBe(oldKey);
+    await expect(page.locator('[data-testid="btn-confirm-submit-import"]')).toBeDisabled();
+    await expect(page.locator('[data-testid="btn-review-import"]')).toBeDisabled();
+    await expect(modal).toBeVisible();
 
     assertZeroUnexpectedViolations();
   });

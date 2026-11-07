@@ -48,11 +48,11 @@ export interface StockTransferModalProps {
 // Zod validation schema for client transfer form (strictly requires UUIDs)
 const clientTransferItemSchema = z
   .object({
-    itemId: z.string().trim().uuid('Vui lòng chọn linh kiện hợp lệ (UUID).'),
-    fromLocationId: z.string().trim().uuid('Vui lòng chọn vị trí nguồn hợp lệ (UUID).'),
-    toLocationId: z.string().trim().uuid('Vui lòng chọn vị trí đích hợp lệ (UUID).'),
+    itemId: z.string().trim().guid('Vui lòng chọn linh kiện hợp lệ (UUID).'),
+    fromLocationId: z.string().trim().guid('Vui lòng chọn vị trí nguồn hợp lệ (UUID).'),
+    toLocationId: z.string().trim().guid('Vui lòng chọn vị trí đích hợp lệ (UUID).'),
     quantity: z
-      .number({ invalid_type_error: 'Số lượng phải là số nguyên dương lớn hơn 0.' })
+      .number({ error: 'Số lượng phải là số nguyên dương lớn hơn 0.' })
       .int('Số lượng phải là số nguyên dương lớn hơn 0.')
       .positive('Số lượng phải là số nguyên dương lớn hơn 0.'),
     notes: z.string().trim().max(500, 'Ghi chú tối đa 500 ký tự.').optional().nullable(),
@@ -64,7 +64,7 @@ const clientTransferSchema = z
     fromLocationId: z.string().trim().optional(),
     toLocationId: z.string().trim().optional(),
     reason: z
-      .string({ required_error: 'Lý do điều chuyển là bắt buộc và phải có ít nhất 5 ký tự.' })
+      .string({ error: 'Lý do điều chuyển là bắt buộc và phải có ít nhất 5 ký tự.' })
       .trim()
       .min(5, 'Lý do điều chuyển là bắt buộc và phải có ít nhất 5 ký tự.')
       .max(500, 'Lý do điều chuyển tối đa 500 ký tự.'),
@@ -200,9 +200,10 @@ export const StockTransferModal: React.FC<StockTransferModalProps> = ({
     const success = fsm.resolveReconciliation();
 
     if (!success) {
+      // Never display an old 409 message as evidence that manual reconciliation was accepted.
+      // The client cannot provide authoritative proof or release the transaction lock.
       setReconcileError(
-        fsm.errorMessage ||
-          'Chức năng giải phóng đối soát thủ công từ giao diện người dùng đã bị vô hiệu hóa vì lý do an toàn. Cần dịch vụ xác minh có thẩm quyền từ máy chủ.'
+        'Chức năng giải phóng đối soát thủ công từ giao diện người dùng đã bị vô hiệu hóa vì lý do an toàn. Cần dịch vụ xác minh có thẩm quyền từ máy chủ.'
       );
     }
   };

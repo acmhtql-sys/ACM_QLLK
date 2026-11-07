@@ -28,7 +28,7 @@ locationsRouter.get(
     try {
       const parsedQuery = queryLocationTreeSchema.safeParse(req.query);
       if (!parsedQuery.success) {
-        throw new AppError('Tham số truy vấn cây vị trí không hợp lệ', 422, parsedQuery.error.errors);
+        throw new AppError('Tham số truy vấn cây vị trí không hợp lệ', 422, parsedQuery.error.issues);
       }
 
       const tree = await locationsService.getLocationTree(parsedQuery.data, req.user);
@@ -52,7 +52,7 @@ locationsRouter.get(
     try {
       const parsedQuery = queryLocationsSchema.safeParse(req.query);
       if (!parsedQuery.success) {
-        throw new AppError('Tham số truy vấn không hợp lệ', 422, parsedQuery.error.errors);
+        throw new AppError('Tham số truy vấn không hợp lệ', 422, parsedQuery.error.issues);
       }
 
       const result = await locationsService.listLocations(parsedQuery.data, req.user);
@@ -100,7 +100,7 @@ locationsRouter.post(
     try {
       const parsed = createLocationSchema.safeParse(req.body);
       if (!parsed.success) {
-        throw new AppError('Dữ liệu tạo vị trí kho không hợp lệ', 422, parsed.error.errors);
+        throw new AppError('Dữ liệu tạo vị trí kho không hợp lệ', 422, parsed.error.issues);
       }
 
       const created = await locationsService.createLocation(
@@ -130,7 +130,7 @@ locationsRouter.put(
     try {
       const parsed = updateLocationSchema.safeParse(req.body);
       if (!parsed.success) {
-        throw new AppError('Dữ liệu cập nhật vị trí kho không hợp lệ', 422, parsed.error.errors);
+        throw new AppError('Dữ liệu cập nhật vị trí kho không hợp lệ', 422, parsed.error.issues);
       }
 
       const updated = await locationsService.updateLocation(
@@ -161,7 +161,7 @@ locationsRouter.patch(
     try {
       const parsed = updateLocationStatusSchema.safeParse(req.body);
       if (!parsed.success) {
-        throw new AppError('Dữ liệu trạng thái vị trí kho không hợp lệ', 422, parsed.error.errors);
+        throw new AppError('Dữ liệu trạng thái vị trí kho không hợp lệ', 422, parsed.error.issues);
       }
 
       const updated = await locationsService.updateLocationStatus(

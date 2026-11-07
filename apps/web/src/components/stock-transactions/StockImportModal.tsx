@@ -43,14 +43,14 @@ export interface StockImportModalProps {
 // Zod validation schema for client import form (strictly requires UUIDs)
 const clientImportItemSchema = z
   .object({
-    itemId: z.string().trim().uuid('Vui lòng chọn linh kiện hợp lệ (UUID).'),
-    locationId: z.string().trim().uuid('Vui lòng chọn vị trí kho hợp lệ (UUID).'),
+    itemId: z.string().trim().guid('Vui lòng chọn linh kiện hợp lệ (UUID).'),
+    locationId: z.string().trim().guid('Vui lòng chọn vị trí kho hợp lệ (UUID).'),
     quantity: z
-      .number({ invalid_type_error: 'Số lượng phải là số nguyên dương lớn hơn 0.' })
+      .number({ error: 'Số lượng phải là số nguyên dương lớn hơn 0.' })
       .int('Số lượng phải là số nguyên dương lớn hơn 0.')
       .positive('Số lượng phải là số nguyên dương lớn hơn 0.'),
     unitCost: z
-      .number({ invalid_type_error: 'Đơn giá không được là số âm.' })
+      .number({ error: 'Đơn giá không được là số âm.' })
       .min(0, 'Đơn giá không được là số âm.')
       .optional()
       .nullable(),
@@ -166,9 +166,10 @@ export const StockImportModal: React.FC<StockImportModalProps> = ({
     const success = fsm.resolveReconciliation();
 
     if (!success) {
+      // Never display an old 409 message as evidence that manual reconciliation was accepted.
+      // The client cannot provide authoritative proof or release the transaction lock.
       setReconcileError(
-        fsm.errorMessage ||
-          'Chức năng giải phóng đối soát thủ công từ giao diện người dùng đã bị vô hiệu hóa vì lý do an toàn. Cần dịch vụ xác minh có thẩm quyền từ máy chủ.'
+        'Chức năng giải phóng đối soát thủ công từ giao diện người dùng đã bị vô hiệu hóa vì lý do an toàn. Cần dịch vụ xác minh có thẩm quyền từ máy chủ.'
       );
     }
   };

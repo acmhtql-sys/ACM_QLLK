@@ -47,10 +47,10 @@ export interface StockExportModalProps {
 // Zod validation schema for client export form (strictly requires UUIDs)
 const clientExportItemSchema = z
   .object({
-    itemId: z.string().trim().uuid('Vui lòng chọn linh kiện hợp lệ (UUID).'),
-    locationId: z.string().trim().uuid('Vui lòng chọn vị trí kho hợp lệ (UUID).'),
+    itemId: z.string().trim().guid('Vui lòng chọn linh kiện hợp lệ (UUID).'),
+    locationId: z.string().trim().guid('Vui lòng chọn vị trí kho hợp lệ (UUID).'),
     quantity: z
-      .number({ invalid_type_error: 'Số lượng phải là số nguyên dương lớn hơn 0.' })
+      .number({ error: 'Số lượng phải là số nguyên dương lớn hơn 0.' })
       .int('Số lượng phải là số nguyên dương lớn hơn 0.')
       .positive('Số lượng phải là số nguyên dương lớn hơn 0.'),
     notes: z.string().trim().max(500, 'Ghi chú tối đa 500 ký tự.').optional().nullable(),
@@ -60,7 +60,7 @@ const clientExportItemSchema = z
 const clientExportSchema = z
   .object({
     reason: z
-      .string({ required_error: 'Lý do xuất kho là bắt buộc và phải có ít nhất 3 ký tự.' })
+      .string({ error: 'Lý do xuất kho là bắt buộc và phải có ít nhất 3 ký tự.' })
       .trim()
       .min(3, 'Lý do xuất kho là bắt buộc và phải có ít nhất 3 ký tự.')
       .max(500, 'Lý do xuất kho tối đa 500 ký tự.'),
@@ -196,9 +196,10 @@ export const StockExportModal: React.FC<StockExportModalProps> = ({
     const success = fsm.resolveReconciliation();
 
     if (!success) {
+      // Never display an old 409 message as evidence that manual reconciliation was accepted.
+      // The client cannot provide authoritative proof or release the transaction lock.
       setReconcileError(
-        fsm.errorMessage ||
-          'Chức năng giải phóng đối soát thủ công từ giao diện người dùng đã bị vô hiệu hóa vì lý do an toàn. Cần dịch vụ xác minh có thẩm quyền từ máy chủ.'
+        'Chức năng giải phóng đối soát thủ công từ giao diện người dùng đã bị vô hiệu hóa vì lý do an toàn. Cần dịch vụ xác minh có thẩm quyền từ máy chủ.'
       );
     }
   };

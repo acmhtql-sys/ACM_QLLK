@@ -93,7 +93,7 @@ usersRouter.post(
     try {
       const parsed = createUserSchema.safeParse(req.body);
       if (!parsed.success) {
-        throw new AppError('Dữ liệu tạo người dùng không hợp lệ', 422, parsed.error.errors);
+        throw new AppError('Dữ liệu tạo người dùng không hợp lệ', 422, parsed.error.issues);
       }
 
       const data = parsed.data;
@@ -129,7 +129,7 @@ usersRouter.put(
       const parsed = updateUserSchema.safeParse(req.body);
       if (!idParsed.success) throw new AppError('ID người dùng không hợp lệ', 422);
       if (!parsed.success) {
-        throw new AppError('Dữ liệu cập nhật người dùng không hợp lệ', 422, parsed.error.errors);
+        throw new AppError('Dữ liệu cập nhật người dùng không hợp lệ', 422, parsed.error.issues);
       }
 
       const data = parsed.data;
@@ -162,7 +162,7 @@ usersRouter.patch(
       const parsed = updateStatusSchema.safeParse(req.body);
       if (!idParsed.success) throw new AppError('ID người dùng không hợp lệ', 422);
       if (!parsed.success) {
-        throw new AppError('Trạng thái tài khoản không hợp lệ', 422, parsed.error.errors);
+        throw new AppError('Trạng thái tài khoản không hợp lệ', 422, parsed.error.issues);
       }
 
       if (
@@ -197,7 +197,7 @@ usersRouter.post(
       const parsed = resetPasswordSchema.safeParse(req.body);
       if (!idParsed.success) throw new AppError('ID người dùng không hợp lệ', 422);
       if (!parsed.success) {
-        throw new AppError('Mật khẩu mới không đáp ứng chính sách bảo mật', 422, parsed.error.errors);
+        throw new AppError('Mật khẩu mới không đáp ứng chính sách bảo mật', 422, parsed.error.issues);
       }
 
       const passwordHash = await bcrypt.hash(parsed.data.password, 12);

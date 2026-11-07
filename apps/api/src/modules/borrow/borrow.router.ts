@@ -25,7 +25,7 @@ borrowRouter.get('/', authenticate, async (req: Request, res: Response, next: Ne
   try {
     const parsedQuery = queryBorrowRequestsSchema.safeParse(req.query);
     if (!parsedQuery.success) {
-      throw new AppError('Tham số truy vấn không hợp lệ', 422, parsedQuery.error.errors);
+      throw new AppError('Tham số truy vấn không hợp lệ', 422, parsedQuery.error.issues);
     }
 
     const result = await borrowService.listBorrowRequests(parsedQuery.data, req.user!);
@@ -62,7 +62,7 @@ borrowRouter.post('/', authenticate, async (req: Request, res: Response, next: N
   try {
     const parsed = createBorrowRequestSchema.safeParse(req.body);
     if (!parsed.success) {
-      throw new AppError('Dữ liệu tạo phiếu mượn không hợp lệ', 422, parsed.error.errors);
+      throw new AppError('Dữ liệu tạo phiếu mượn không hợp lệ', 422, parsed.error.issues);
     }
 
     const created = await borrowService.createBorrowRequest(parsed.data, req.user!);
@@ -85,7 +85,7 @@ borrowRouter.patch(
     try {
       const parsed = approveBorrowRequestSchema.safeParse(req.body);
       if (!parsed.success) {
-        throw new AppError('Dữ liệu phê duyệt không hợp lệ', 422, parsed.error.errors);
+        throw new AppError('Dữ liệu phê duyệt không hợp lệ', 422, parsed.error.issues);
       }
 
       const approved = await borrowService.approveBorrowRequest(
@@ -113,7 +113,7 @@ borrowRouter.patch(
     try {
       const parsed = rejectBorrowRequestSchema.safeParse(req.body);
       if (!parsed.success) {
-        throw new AppError('Dữ liệu từ chối không hợp lệ', 422, parsed.error.errors);
+        throw new AppError('Dữ liệu từ chối không hợp lệ', 422, parsed.error.issues);
       }
 
       const rejected = await borrowService.rejectBorrowRequest(
@@ -140,7 +140,7 @@ borrowRouter.patch(
     try {
       const parsed = cancelBorrowRequestSchema.safeParse(req.body);
       if (!parsed.success) {
-        throw new AppError('Dữ liệu hủy phiếu không hợp lệ', 422, parsed.error.errors);
+        throw new AppError('Dữ liệu hủy phiếu không hợp lệ', 422, parsed.error.issues);
       }
 
       const cancelled = await borrowService.cancelBorrowRequest(
@@ -168,7 +168,7 @@ borrowRouter.patch(
     try {
       const parsed = handoverBorrowRequestSchema.safeParse(req.body);
       if (!parsed.success) {
-        throw new AppError('Dữ liệu bàn giao không hợp lệ', 422, parsed.error.errors);
+        throw new AppError('Dữ liệu bàn giao không hợp lệ', 422, parsed.error.issues);
       }
 
       const handedOver = await borrowService.handoverBorrowRequest(
@@ -196,7 +196,7 @@ borrowRouter.post(
     try {
       const parsed = returnBorrowRequestSchema.safeParse(req.body);
       if (!parsed.success) {
-        throw new AppError('Dữ liệu hoàn trả không hợp lệ', 422, parsed.error.errors);
+        throw new AppError('Dữ liệu hoàn trả không hợp lệ', 422, parsed.error.issues);
       }
 
       const result = await borrowService.returnBorrowRequest(
