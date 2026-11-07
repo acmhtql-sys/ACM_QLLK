@@ -1,0 +1,75 @@
+name: ACM D8 RC5 integration merge preflight (NO PUSH)
+
+on:
+  push:
+    branches:
+      - codex/d8-rc5-consolidation-preflight-20261107
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  dry-run-merge:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Checkout isolated RC5-based preflight branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Preview merge without changing any remote branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          source_sha=17728e6d19da39f59338c159e16a40dfa22b018e
+          current="$(git rev-parse HEAD)"
+          echo "RC5_PREFLIGHT_BRANCH_HEAD=$current"
+          echo "RC5_CANDIDATE_SHA=$source_sha"
+          echo "RC5_PREFLIGHT_REVIEW_ONLY=YES"
+          git cat-file -t "$source_sha" || { echo "Source SHA unavailable: no result"; exit 1; }
+          git config user.name "ACM Merge Preflight (local-only)"
+          git config user.email "acm-merge-preflight@users.noreply.github.com"
+          set +e
+          git merge --no-commit --no-ff "$source_sha" > "$RUNNER_TEMP/merge-output.txt" 2>&1
+          code=$?
+          set -e
+          echo "RC5_GIT_MERGE_EXIT=$code"
+          echo "RC5_MERGE_OUTPUT_BEGIN"
+          cat "$RUNNER_TEMP/merge-output.txt" | head -70
+          echo "RC5_MERGE_OUTPUT_END"
+          git diff --name-only --diff-filter=U > "$RUNNER_TEMP/rc5-conflicts.txt"
+          echo "RC5_CONFLICT_COUNT=$(wc -l < "$RUNNER_TEMP/rc5-conflicts.txt")"
+          echo "RC5_CONFLICT_FILES_BEGIN"
+          cat "$RUNNER_TEMP/rc5-conflicts.txt"
+          echo "RC5_CONFLICT_FILES_END"
+          echo "RC5_UNMERGED_STAGES_BEGIN"
+          git ls-files -u | sed -E 's/^[0-9]+ ([a-f0-9]{40}) [123]/stage \2 SHA_REDACTED/' | head -100 || true
+          echo "RC5_UNMERGED_STAGES_END"
+          echo "RC5_AUTO_MERGED_PATHS_BEGIN"
+          git diff --cached --name-only | head -120
+          echo "RC5_AUTO_MERGED_PATHS_END"
+          {
+            echo "## ACM D8 — RC5 consolidation preflight (REPORT-ONLY)"
+            echo ""
+            echo "- RC5-based branch head: \`$current\`"
+            echo "- Compared candidate: \`$source_sha\` (Draft PR #46)"
+            echo "- Local-only git merge exit: **$code**"
+            echo "- Unresolved file count: **$(wc -l < "$RUNNER_TEMP/rc5-conflicts.txt")**"
+            echo ""
+            echo "### Conflicting files"
+            echo '\`\`\`'
+            cat "$RUNNER_TEMP/rc5-conflicts.txt"
+            echo '\`\`\`'
+            echo ""
+            echo "No branch push, PR merge, Render deploy, database access, migration, seed, secret read or billing action occurred."
+            echo ""
+            echo "**This workflow only reports merge feasibility and never authorizes a release.**"
+          } >> "$GITHUB_STEP_SUMMARY"
+          if git rev-parse -q --verify MERGE_HEAD >/dev/null; then
+            git merge --abort
+          fi
+          echo "RC5_PREVIEW_CLEANED=true"
+          # A successful report is NOT a successful release merge; keep status non-blocking.
