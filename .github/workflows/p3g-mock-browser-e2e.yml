@@ -5,6 +5,7 @@ on:
     branches:
       - codex/p3-staging-readonly-deployment-20261107
       - codex/p3g-zod4-compat-probe-20261107
+      - codex/p3h-toolchain-security-probe-20261107
 
 permissions:
   contents: read

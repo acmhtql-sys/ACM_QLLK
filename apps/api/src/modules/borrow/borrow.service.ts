@@ -740,6 +740,10 @@ export class BorrowService {
     }
 
     const result = await prisma.$transaction(async (tx) => {
+      // Serialize returns for the SAME borrow request before reading returnedQuantity.
+      // A plain Prisma findUnique() does not lock a PostgreSQL row.
+      await tx.$queryRaw`SELECT "id" FROM "borrow_requests"
+        WHERE "id" = ${id}::uuid FOR UPDATE`;
       const req = await tx.borrowRequest.findUnique({
         where: { id },
         include: {
@@ -760,6 +764,16 @@ export class BorrowService {
           `Chỉ phiếu mượn 'Đang mượn (HANDED_OVER)' hoặc 'Đã trả một phần (PARTIALLY_RETURNED)' mới có thể nhận hoàn trả. Trạng thái hiện tại: '${req.status}'`,
           400
         );
+      }
+
+      // Reject duplicates even if each line passes validation independently.
+      // Otherwise the same BorrowDetail could be returned twice in one request.
+      const seenBorrowDetails = new Set<string>();
+      for (const returnItem of input.items) {
+        if (seenBorrowDetails.has(returnItem.borrowDetailId)) {
+          throw new AppError('Một dòng phiếu mượn chỉ được hoàn trả một lần trong một yêu cầu', 422);
+        }
+        seenBorrowDetails.add(returnItem.borrowDetailId);
       }
 
       // Anti-double-return and quantity validation
@@ -814,125 +828,131 @@ export class BorrowService {
           data: { returnedQuantity: { increment: returnItem.returnedQuantity } },
         });
 
-        // Determine destination location for stock
-        let destinationLocationId = returnItem.locationId;
-        if (!destinationLocationId) {
-          const matchingReservation = req.reservations.find((r) => r.itemId === detail.itemId);
-          destinationLocationId = matchingReservation?.locationId;
-        }
+        // A handover may only release borrowed quantities from the proven ORIGINAL
+        // issuing location. Never infer the origin from the destination or findFirst().
+        // Multiple issuing locations for the same item require Stage4C line-level
+        // provenance; fail closed rather than guessing how to distribute a return.
+        const origins = req.reservations.filter(
+          (reservation) =>
+            reservation.itemId === detail.itemId &&
+            reservation.status === ReservationStatus.FULFILLED
+        );
+        const sourceLocations = [...new Set(origins.map((reservation) => reservation.locationId))];
+        const totalHandedOver = origins.reduce((sum, reservation) => sum + reservation.quantity, 0);
+        const totalRequestedForItem = req.details
+          .filter((row) => row.itemId === detail.itemId)
+          .reduce((sum, row) => sum + row.quantity, 0);
 
-        if (!destinationLocationId) {
-          const firstBalance = await tx.stockBalance.findFirst({
-            where: { itemId: detail.itemId },
-            select: { locationId: true },
-          });
-          destinationLocationId = firstBalance?.locationId;
-        }
-
-        if (!destinationLocationId) {
+        if (sourceLocations.length !== 1 || totalHandedOver < totalRequestedForItem) {
           throw new AppError(
-            `Không xác định được vị trí kho để hoàn trả cho linh kiện '${detail.item?.name || detail.itemId}'`,
-            400
+            'Không xác minh được một vị trí xuất kho duy nhất từ dữ liệu bàn giao; yêu cầu đối soát D8',
+            409
           );
         }
 
-        // Lock / fetch StockBalance
-        let bal = await tx.stockBalance.findUnique({
+        const sourceLocationId = sourceLocations[0];
+        const destinationLocationId = returnItem.locationId ?? sourceLocationId;
+        const sourceEntry = await tx.stockBalance.findUnique({
           where: {
-            itemId_locationId: { itemId: detail.itemId, locationId: destinationLocationId },
+            itemId_locationId: { itemId: detail.itemId, locationId: sourceLocationId },
           },
         });
+        const destinationEntry = destinationLocationId === sourceLocationId
+          ? sourceEntry
+          : await tx.stockBalance.findUnique({
+              where: {
+                itemId_locationId: { itemId: detail.itemId, locationId: destinationLocationId },
+              },
+            });
 
-        if (!bal) {
-          bal = await tx.stockBalance.create({
+        // Creating arbitrary new balances during return obscures the physical
+        // custody location and can race against another return. Require an
+        // established, explicitly managed destination balance for this proposal.
+        if (!sourceEntry || !destinationEntry) {
+          throw new AppError(
+            'Chưa có số dư kho nguồn hoặc kho nhận được xác minh; không thể ghi phiếu trả',
+            409
+          );
+        }
+
+        // Lock all participating balances in a stable order to protect the
+        // onHandBefore/onHandAfter audit snapshot and avoid A<->B deadlocks.
+        const balanceIds = [...new Set([sourceEntry.id, destinationEntry.id])].sort();
+        await tx.$queryRaw`SELECT "id" FROM "stock_balances"
+          WHERE "id" = ANY(ARRAY[${Prisma.join(balanceIds)}]::uuid[])
+          ORDER BY "id" FOR UPDATE`;
+
+        // Re-read AFTER the row locks; stale pre-lock values must never be used.
+        const source = await tx.stockBalance.findUnique({ where: { id: sourceEntry.id } });
+        const destination = sourceEntry.id === destinationEntry.id
+          ? source
+          : await tx.stockBalance.findUnique({ where: { id: destinationEntry.id } });
+        if (!source || !destination || source.borrowed < returnItem.returnedQuantity) {
+          throw new AppError('Số lượng đang mượn tại kho xuất không còn hợp lệ; cần đối soát', 409);
+        }
+
+        const quantity = returnItem.returnedQuantity;
+        const condition = returnItem.condition ?? AssetCondition.GOOD;
+        const physicallyReceived = condition !== AssetCondition.LOST;
+        const sameLocation = source.id === destination.id;
+
+        // Atomic conditional decrement guards against writers using another
+        // BorrowRequest that target the same stock balance.
+        const deducted = await tx.stockBalance.updateMany({
+          where: { id: source.id, borrowed: { gte: quantity } },
+          data: {
+            borrowed: { decrement: quantity },
+            ...(sameLocation && physicallyReceived
+              ? {
+                  onHand: { increment: quantity },
+                  ...(condition === AssetCondition.DAMAGED
+                    ? { quarantined: { increment: quantity } }
+                    : {}),
+                }
+              : {}),
+          },
+        });
+        if (deducted.count !== 1) {
+          throw new AppError('Số lượng đang mượn đã thay đổi đồng thời; vui lòng đối soát', 409);
+        }
+
+        if (!sameLocation && physicallyReceived) {
+          await tx.stockBalance.update({
+            where: { id: destination.id },
             data: {
-              itemId: detail.itemId,
-              locationId: destinationLocationId,
-              onHand: 0,
-              reserved: 0,
-              quarantined: 0,
-              kitAllocated: 0,
-              borrowed: 0,
+              onHand: { increment: quantity },
+              ...(condition === AssetCondition.DAMAGED
+                ? { quarantined: { increment: quantity } }
+                : {}),
             },
           });
         }
 
-        const onHandBefore = bal.onHand;
-        const condition = returnItem.condition || AssetCondition.GOOD;
-
-        if (condition === AssetCondition.GOOD) {
-          const onHandAfter = bal.onHand + returnItem.returnedQuantity;
-          await tx.stockBalance.update({
-            where: { id: bal.id },
-            data: {
-              borrowed: { decrement: Math.min(bal.borrowed, returnItem.returnedQuantity) },
-              onHand: { increment: returnItem.returnedQuantity },
-            },
-          });
-
-          await tx.stockMovement.create({
-            data: {
-              itemId: detail.itemId,
-              locationId: destinationLocationId,
-              type: StockTransactionType.IMPORT,
-              quantityDelta: returnItem.returnedQuantity,
-              onHandBefore,
-              onHandAfter,
-              referenceType: 'RETURN',
-              referenceId: returnTx.id,
-              reason: `Hoàn trả linh kiện tốt theo phiếu ${req.requestNumber}`,
-              createdById: currentUser.id,
-            },
-          });
-        } else if (condition === AssetCondition.DAMAGED) {
-          const onHandAfter = bal.onHand + returnItem.returnedQuantity;
-          await tx.stockBalance.update({
-            where: { id: bal.id },
-            data: {
-              borrowed: { decrement: Math.min(bal.borrowed, returnItem.returnedQuantity) },
-              onHand: { increment: returnItem.returnedQuantity },
-              quarantined: { increment: returnItem.returnedQuantity },
-            },
-          });
-
-          await tx.stockMovement.create({
-            data: {
-              itemId: detail.itemId,
-              locationId: destinationLocationId,
-              type: StockTransactionType.IMPORT,
-              quantityDelta: returnItem.returnedQuantity,
-              onHandBefore,
-              onHandAfter,
-              referenceType: 'RETURN_DAMAGED',
-              referenceId: returnTx.id,
-              reason: `Hoàn trả linh kiện hỏng - cách ly theo phiếu ${req.requestNumber}`,
-              createdById: currentUser.id,
-            },
-          });
-        } else if (condition === AssetCondition.LOST) {
-          // Physically lost: doesn't return to onHand, only decrement borrowed
-          await tx.stockBalance.update({
-            where: { id: bal.id },
-            data: {
-              borrowed: { decrement: Math.min(bal.borrowed, returnItem.returnedQuantity) },
-            },
-          });
-
-          await tx.stockMovement.create({
-            data: {
-              itemId: detail.itemId,
-              locationId: destinationLocationId,
-              type: StockTransactionType.EXPORT,
-              quantityDelta: 0,
-              onHandBefore,
-              onHandAfter: onHandBefore,
-              referenceType: 'RETURN_LOST',
-              referenceId: returnTx.id,
-              reason: `Báo mất linh kiện khi trả theo phiếu ${req.requestNumber}`,
-              createdById: currentUser.id,
-            },
-          });
-        }
+        const onHandBefore = physicallyReceived ? destination.onHand : source.onHand;
+        await tx.stockMovement.create({
+          data: {
+            itemId: detail.itemId,
+            locationId: physicallyReceived ? destinationLocationId : sourceLocationId,
+            type: physicallyReceived ? StockTransactionType.IMPORT : StockTransactionType.EXPORT,
+            quantityDelta: physicallyReceived ? quantity : 0,
+            onHandBefore,
+            onHandAfter: onHandBefore + (physicallyReceived ? quantity : 0),
+            referenceType:
+              condition === AssetCondition.GOOD
+                ? 'RETURN'
+                : condition === AssetCondition.DAMAGED
+                  ? 'RETURN_DAMAGED'
+                  : 'RETURN_LOST',
+            referenceId: returnTx.id,
+            reason:
+              condition === AssetCondition.GOOD
+                ? `Hoàn trả linh kiện tốt theo phiếu ${req.requestNumber}`
+                : condition === AssetCondition.DAMAGED
+                  ? `Hoàn trả linh kiện hỏng - cách ly theo phiếu ${req.requestNumber}`
+                  : `Báo mất linh kiện theo phiếu ${req.requestNumber}`,
+            createdById: currentUser.id,
+          },
+        });
       }
 
       // Check overall return completion

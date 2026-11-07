@@ -18,6 +18,7 @@ import { env } from '../src/config/env';
 // Mock prisma client
 vi.mock('../src/config/database', () => {
   const mockTx = {
+    $queryRaw: vi.fn(),
     borrowRequest: {
       findUnique: vi.fn(),
       findMany: vi.fn(),
@@ -36,6 +37,7 @@ vi.mock('../src/config/database', () => {
       findMany: vi.fn(),
       create: vi.fn(),
       update: vi.fn(),
+      updateMany: vi.fn(),
     },
     stockReservation: {
       findMany: vi.fn(),
@@ -226,6 +228,8 @@ describe('ACM Phase 4 – Borrow & Return Management Test Suite', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    (prisma as any).__mockTx.$queryRaw.mockResolvedValue([{ id: borrowRequestId }]);
+    (prisma as any).__mockTx.stockBalance.updateMany.mockResolvedValue({ count: 1 });
     vi.mocked(prisma.user.findUnique).mockImplementation(async ({ where }: any) => {
       const users = [adminUser, labManagerUser, technicianUser, studentUser];
       const found = users.find((u) => u.id === where.id || u.email === where.email);
@@ -517,7 +521,7 @@ describe('ACM Phase 4 – Borrow & Return Management Test Suite', () => {
             item: { id: itemId, name: 'STM32F401' },
           },
         ],
-        reservations: [{ itemId, locationId }],
+        reservations: [{ itemId, locationId, quantity: 2, status: ReservationStatus.FULFILLED }],
       });
 
       mockTx.returnTransaction.findUnique.mockResolvedValue(null);
@@ -578,9 +582,9 @@ describe('ACM Phase 4 – Borrow & Return Management Test Suite', () => {
       );
 
       expect(res.borrowRequest.status).toBe(BorrowStatus.PARTIALLY_RETURNED);
-      expect(mockTx.stockBalance.update).toHaveBeenCalledWith(
+      expect(mockTx.stockBalance.updateMany).toHaveBeenCalledWith(
         expect.objectContaining({
-          where: { id: 'sb-1' },
+          where: { id: 'sb-1', borrowed: { gte: 1 } },
           data: {
             borrowed: { decrement: 1 },
             onHand: { increment: 1 },
@@ -614,7 +618,7 @@ describe('ACM Phase 4 – Borrow & Return Management Test Suite', () => {
             item: { id: itemId, name: 'STM32F401' },
           },
         ],
-        reservations: [{ itemId, locationId }],
+        reservations: [{ itemId, locationId, quantity: 2, status: ReservationStatus.FULFILLED }],
       });
 
       mockTx.returnTransaction.findUnique.mockResolvedValue(null);
@@ -677,9 +681,9 @@ describe('ACM Phase 4 – Borrow & Return Management Test Suite', () => {
 
       expect(res.borrowRequest.status).toBe(BorrowStatus.RETURNED);
       // Damaged condition: increments onHand and quarantined, decrements borrowed
-      expect(mockTx.stockBalance.update).toHaveBeenCalledWith(
+      expect(mockTx.stockBalance.updateMany).toHaveBeenCalledWith(
         expect.objectContaining({
-          where: { id: 'sb-1' },
+          where: { id: 'sb-1', borrowed: { gte: 1 } },
           data: {
             borrowed: { decrement: 1 },
             onHand: { increment: 1 },
@@ -716,7 +720,7 @@ describe('ACM Phase 4 – Borrow & Return Management Test Suite', () => {
             item: { id: itemId, name: 'STM32F401' },
           },
         ],
-        reservations: [{ itemId, locationId }],
+        reservations: [{ itemId, locationId, quantity: 1, status: ReservationStatus.FULFILLED }],
       });
 
       mockTx.returnTransaction.findUnique.mockResolvedValue(null);
@@ -770,9 +774,9 @@ describe('ACM Phase 4 – Borrow & Return Management Test Suite', () => {
 
       expect(res.borrowRequest.status).toBe(BorrowStatus.RETURNED);
       // LOST: only borrowed decrements, onHand is NOT incremented
-      expect(mockTx.stockBalance.update).toHaveBeenCalledWith(
+      expect(mockTx.stockBalance.updateMany).toHaveBeenCalledWith(
         expect.objectContaining({
-          where: { id: 'sb-1' },
+          where: { id: 'sb-1', borrowed: { gte: 1 } },
           data: {
             borrowed: { decrement: 1 },
           },
@@ -786,6 +790,166 @@ describe('ACM Phase 4 – Borrow & Return Management Test Suite', () => {
           }),
         })
       );
+    });
+  });
+
+  describe('D8 P0 – Source-of-truth return ledger guards (mock-only)', () => {
+    const sourceLocationId = locationId;
+    const destinationLocationId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbc';
+
+    function setupReturn({
+      fulfilled = [{ itemId, locationId: sourceLocationId, quantity: 4, status: ReservationStatus.FULFILLED }],
+      sourceBorrowed = 4,
+      destinationExists = true,
+    }: {
+      fulfilled?: Array<{ itemId: string; locationId: string; quantity: number; status: ReservationStatus }>;
+      sourceBorrowed?: number;
+      destinationExists?: boolean;
+    } = {}) {
+      const tx = (prisma as any).__mockTx;
+      tx.borrowRequest.findUnique.mockResolvedValue({
+        id: borrowRequestId,
+        status: BorrowStatus.HANDED_OVER,
+        requestNumber: 'BR-D8-P0-TEST',
+        details: [
+          { id: borrowDetailId, itemId, quantity: 4, returnedQuantity: 0, item: { id: itemId, name: 'ESP32' } },
+        ],
+        reservations: fulfilled,
+      });
+
+      const src = {
+        id: 'ba000000-0000-4000-8000-000000000001',
+        itemId, locationId: sourceLocationId, borrowed: sourceBorrowed,
+        onHand: 6, reserved: 0, quarantined: 0, kitAllocated: 0,
+      };
+      const dest = {
+        id: 'ba000000-0000-4000-8000-000000000002',
+        itemId, locationId: destinationLocationId, borrowed: 0,
+        onHand: 0, reserved: 0, quarantined: 0, kitAllocated: 0,
+      };
+      tx.stockBalance.findUnique.mockImplementation(async ({ where }: any) => {
+        if (where.id === src.id || where.itemId_locationId?.locationId === sourceLocationId) return src;
+        if (where.id === dest.id || where.itemId_locationId?.locationId === destinationLocationId) {
+          return destinationExists ? dest : null;
+        }
+        return null;
+      });
+      tx.returnTransaction.findUnique.mockResolvedValue(null);
+      tx.returnTransaction.create.mockResolvedValue({
+        id: 'ba000000-0000-4000-8000-000000000003', returnNumber: 'RT-D8-P0-TEST',
+      });
+      tx.borrowDetail.findMany.mockResolvedValue([
+        { id: borrowDetailId, quantity: 4, returnedQuantity: 4 },
+      ]);
+      tx.borrowRequest.update.mockResolvedValue({
+        id: borrowRequestId,
+        status: BorrowStatus.RETURNED,
+        requestNumber: 'BR-D8-P0-TEST',
+        actualReturnDate: new Date(),
+        details: [{ id: borrowDetailId, itemId, quantity: 4, returnedQuantity: 4 }],
+        returnTransactions: [],
+      });
+      return { tx, src, dest };
+    }
+
+    it('D8-P0-CROSS-LOCATION: debits issuing A and credits destination B, never B.borrowed', async () => {
+      const { tx, src, dest } = setupReturn();
+      await borrowService.returnBorrowRequest(
+        borrowRequestId,
+        { items: [{ borrowDetailId, returnedQuantity: 4, locationId: destinationLocationId, condition: AssetCondition.GOOD }] },
+        technicianUser
+      );
+      expect(tx.stockBalance.updateMany).toHaveBeenCalledWith({
+        where: { id: src.id, borrowed: { gte: 4 } },
+        data: { borrowed: { decrement: 4 } },
+      });
+      expect(tx.stockBalance.update).toHaveBeenCalledWith({
+        where: { id: dest.id },
+        data: { onHand: { increment: 4 } },
+      });
+      expect(tx.stockMovement.create).toHaveBeenCalledWith(expect.objectContaining({
+        data: expect.objectContaining({
+          locationId: destinationLocationId, onHandBefore: 0, onHandAfter: 4,
+          quantityDelta: 4, referenceType: 'RETURN',
+        }),
+      }));
+      // Lock request before reading it and keep the balance lock in this transaction.
+      expect(tx.$queryRaw).toHaveBeenCalledTimes(2);
+      expect(tx.$queryRaw.mock.invocationCallOrder[0])
+        .toBeLessThan(tx.borrowRequest.findUnique.mock.invocationCallOrder[0]);
+    });
+
+    it('D8-P0-NO-PROVENANCE: rejects a return without FULFILLED issuing reservation', async () => {
+      const { tx } = setupReturn({ fulfilled: [] });
+      await expect(borrowService.returnBorrowRequest(
+        borrowRequestId,
+        { items: [{ borrowDetailId, returnedQuantity: 4 }] },
+        technicianUser
+      )).rejects.toMatchObject({ statusCode: 409 });
+      expect(tx.stockBalance.updateMany).not.toHaveBeenCalled();
+      expect(tx.stockMovement.create).not.toHaveBeenCalled();
+    });
+
+    it('D8-P0-MULTISOURCE: never guesses the issuing location for a mixed-origin item', async () => {
+      const { tx } = setupReturn({
+        fulfilled: [
+          { itemId, locationId: sourceLocationId, quantity: 2, status: ReservationStatus.FULFILLED },
+          { itemId, locationId: destinationLocationId, quantity: 2, status: ReservationStatus.FULFILLED },
+        ],
+      });
+      await expect(borrowService.returnBorrowRequest(
+        borrowRequestId,
+        { items: [{ borrowDetailId, returnedQuantity: 2 }] },
+        technicianUser
+      )).rejects.toMatchObject({ statusCode: 409 });
+      expect(tx.stockBalance.updateMany).not.toHaveBeenCalled();
+    });
+
+    it('D8-P0-INSUFFICIENT: refuses to decrement borrowed below zero', async () => {
+      const { tx } = setupReturn({ sourceBorrowed: 0 });
+      await expect(borrowService.returnBorrowRequest(
+        borrowRequestId,
+        { items: [{ borrowDetailId, returnedQuantity: 2 }] },
+        technicianUser
+      )).rejects.toMatchObject({ statusCode: 409 });
+      expect(tx.stockBalance.updateMany).not.toHaveBeenCalled();
+    });
+
+    it('D8-P0-MISSING-DESTINATION: refuses uncontrolled creation of return stock balance', async () => {
+      const { tx } = setupReturn({ destinationExists: false });
+      await expect(borrowService.returnBorrowRequest(
+        borrowRequestId,
+        { items: [{ borrowDetailId, returnedQuantity: 2, locationId: destinationLocationId }] },
+        technicianUser
+      )).rejects.toMatchObject({ statusCode: 409 });
+      expect(tx.stockBalance.create).not.toHaveBeenCalled();
+      expect(tx.stockBalance.updateMany).not.toHaveBeenCalled();
+    });
+
+    it('D8-P0-DUPLICATE-DETAIL: rejects repeated BorrowDetail in a single payload', async () => {
+      const { tx } = setupReturn();
+      await expect(borrowService.returnBorrowRequest(
+        borrowRequestId,
+        { items: [
+          { borrowDetailId, returnedQuantity: 2 },
+          { borrowDetailId, returnedQuantity: 2 },
+        ] },
+        technicianUser
+      )).rejects.toMatchObject({ statusCode: 422 });
+      expect(tx.returnTransaction.create).not.toHaveBeenCalled();
+      expect(tx.stockBalance.updateMany).not.toHaveBeenCalled();
+    });
+
+    it('D8-P0-ATOMIC-CAS: stale source borrowed value cannot be posted', async () => {
+      const { tx } = setupReturn();
+      tx.stockBalance.updateMany.mockResolvedValueOnce({ count: 0 });
+      await expect(borrowService.returnBorrowRequest(
+        borrowRequestId,
+        { items: [{ borrowDetailId, returnedQuantity: 4, locationId: destinationLocationId }] },
+        technicianUser
+      )).rejects.toMatchObject({ statusCode: 409 });
+      expect(tx.stockBalance.update).not.toHaveBeenCalled();
+      expect(tx.stockMovement.create).not.toHaveBeenCalled();
     });
   });
 
@@ -906,7 +1070,7 @@ describe('ACM Phase 4 – Borrow & Return Management Test Suite', () => {
             item: { id: itemId, name: 'Arduino Uno R3' },
           },
         ],
-        reservations: [{ itemId, locationId }],
+        reservations: [{ itemId, locationId, quantity: 2, status: ReservationStatus.FULFILLED }],
       });
 
       await expect(
@@ -1251,7 +1415,7 @@ describe('ACM Phase 4 – Borrow & Return Management Test Suite', () => {
             item: { id: itemId, name: 'Cáp chuyển đổi UART' },
           },
         ],
-        reservations: [{ itemId, locationId }],
+        reservations: [{ itemId, locationId, quantity: 1, status: ReservationStatus.FULFILLED }],
       }));
 
       mockTx.returnTransaction.findUnique.mockResolvedValue(null);
