@@ -1,0 +1,75 @@
+name: ACM D8 RC5-preferring local-only build probe (NO PUSH)
+
+on:
+  push:
+    branches:
+      - codex/d8-rc5-consolidation-preflight-20261107
+
+permissions:
+  contents: read
+
+jobs:
+  rc-preferred-probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Build diagnostic merge (NOT a proposed conflict resolution)
+        shell: bash
+        run: |
+          set -euo pipefail
+          candidate=17728e6d19da39f59338c159e16a40dfa22b018e
+          git cat-file -e "$candidate^{commit}"
+          git config user.name "ACM Diagnostic Merge CI"
+          git config user.email "acm-diagnostic-merge@users.noreply.github.com"
+          set +e
+          git merge --no-ff --no-commit "$candidate" > "$RUNNER_TEMP/d8-rc-merge.log" 2>&1
+          merge_exit=$?
+          set -e
+          echo "D8_RC_PROBE_INITIAL_MERGE_EXIT=$merge_exit"
+          head -30 "$RUNNER_TEMP/d8-rc-merge.log"
+          conflicts=( $(git diff --name-only --diff-filter=U) )
+          echo "D8_RC_PROBE_CONFLICT_COUNT=${#conflicts[@]}"
+          # A git merge exit 128 (e.g. missing author identity) is NOT a
+          # merge or a passing compatibility probe. Require expected conflicts.
+          if [ "$merge_exit" -ne 1 ] || [ "${#conflicts[@]}" -ne 9 ]; then
+            echo "::error::D8_RC_PROBE_INVALID_MERGE: expected exactly nine merge conflicts, got exit=$merge_exit count=${#conflicts[@]}"
+            exit 1
+          fi
+          # Resolve ONLY IN THIS EPHEMERAL RUNNER to RC5 (ours). The purpose is
+          # to reveal other dependency/compiler/API drift; never commit/push
+          # these arbitrary temporary choices.
+          for f in "${conflicts[@]}"; do
+            echo "D8_RC_TEMP_PREFER_EXISTING=$f"
+            git checkout --ours -- "$f"
+            git add -- "$f"
+          done
+          if git diff --name-only --diff-filter=U | grep .; then
+            echo "::error::Still unmerged files in temporary probe"
+            exit 1
+          fi
+          echo "D8_RC_MERGED_LOCALLY_FOR_DIAGNOSTICS_ONLY=true"
+          echo "D8_RC_NO_COMMIT_NO_PUSH=true"
+
+      - name: Smoke dependency and TypeScript compatibility on temporary RC-preferred worktree
+        shell: bash
+        run: |
+          set -euo pipefail
+          # The local merge combines a Vite/Vitest4 lockfile with RC5's
+          # older manifests. Re-resolve ONLY in this ephemeral runner to
+          # identify further code incompatibilities without committing it.
+          npm install --global npm@11 --no-fund --no-audit
+          npm install --package-lock-only --ignore-scripts --no-fund --no-audit
+          npm ci --ignore-scripts --no-fund --no-audit
+          npm run prisma:generate
+          npm run build:shared
+          npm run typecheck
+          npm run build
