@@ -4,6 +4,7 @@ on:
   pull_request:
     branches:
       - codex/p3-staging-readonly-deployment-20261107
+      - codex/p3g-zod4-compat-probe-20261107
 
 permissions:
   contents: read

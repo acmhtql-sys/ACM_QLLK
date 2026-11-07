@@ -1,0 +1,65 @@
+name: ACM D8 Release Gate Snapshot (read only)
+
+on:
+  pull_request:
+    branches:
+      - codex/p3g-zod4-compat-probe-20261107
+
+permissions:
+  contents: read
+  issues: read
+  pull-requests: read
+
+jobs:
+  report-only:
+    # This job NEVER authorizes a release, merges code or changes DB/services.
+    if: github.head_ref == 'codex/p3h-toolchain-security-probe-20261107'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Read D8 gates and independent PR reviews
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const gateIds = [11,12,13,14,15];
+            const prs = [39,40,41];
+            const gateResults = [];
+            for (const issue_number of gateIds) {
+              const {data} = await github.rest.issues.get({owner,repo,issue_number});
+              gateResults.push({id:issue_number,title:data.title,state:data.state,url:data.html_url});
+            }
+            const prResults = [];
+            for (const pull_number of prs) {
+              const [{data:pr}, {data:reviews}] = await Promise.all([
+                github.rest.pulls.get({owner,repo,pull_number}),
+                github.rest.pulls.listReviews({owner,repo,pull_number,per_page:100})
+              ]);
+              const approvals = reviews.filter(x=>x.state==='APPROVED').map(x=>x.user?.login).filter(Boolean);
+              prResults.push({id:pull_number,draft:pr.draft,merged:pr.merged,approvals:[...new Set(approvals)],url:pr.html_url});
+            }
+            const pendingIssues = gateResults.filter(x=>x.state!=='closed');
+            const pendingReviews = prResults.filter(x=>!x.approvals.length);
+            const status = pendingIssues.length || pendingReviews.length || prResults.some(x=>x.draft) ?
+              'D8 RELEASE NO-GO' : 'D8 PRE-RELEASE HUMAN SIGNOFF STILL REQUIRED';
+            const rows = [
+              '## ACM D8 — release gate snapshot (read-only)',
+              '',
+              '**' + status + '**',
+              '',
+              '| Gate | GitHub status | Link |',
+              '|---|---|---|',
+              ...gateResults.map(x=>'| #'+x.id+' | '+x.state.toUpperCase()+' | '+x.url+' |'),
+              '',
+              '| Draft PR | Draft | Merged | Recorded approving reviewers |',
+              '|---|---|---|---|',
+              ...prResults.map(x=>'| #'+x.id+' | '+x.draft+' | '+x.merged+' | '+(x.approvals.join(', ')||'NONE')+' |'),
+              '',
+              'This is a **snapshot only**. Issue closure and GitHub approvals do NOT prove DBA decision validity, actual DB-backed E2E, backup/restore or owner release signoff.',
+              'No SQL, seed, migration, remote service, real data, deployment or billing action was performed.'
+            ];
+            await core.summary.addRaw(rows.join('\n')).write();
+            core.info(status);
+            core.info('Pending issue gates: '+pendingIssues.map(x=>'#'+x.id).join(', '));
+            core.info('PRs lacking recorded approvals: '+pendingReviews.map(x=>'#'+x.id).join(', '));

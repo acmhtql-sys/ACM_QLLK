@@ -68,6 +68,33 @@ jobs:
           npm audit --omit=dev --json > "$RUNNER_TEMP/acm-audit-prod.json" || true
           node -e 'const fs=require("fs"); for(const [scope,file] of [["all","acm-audit-all.json"],["production","acm-audit-prod.json"]]){ try{const report=JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP+"/"+file,"utf8")); const counts=report.metadata?.vulnerabilities||{}; const vulns=report.vulnerabilities||{}; const high=Object.entries(vulns).filter(([,v])=>["critical","high"].includes(v.severity)).map(([name,v])=>name+"("+v.severity+")"); const summary="P3F "+scope+" npm audit "+JSON.stringify(counts)+" | HIGH/CRITICAL: "+(high.join(", ")||"none"); console.log(summary); fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, "### "+scope+" npm audit\\n\\n"+summary+"\\n\\n"); }catch(e){console.log("P3F "+scope+" audit unavailable: "+String(e.message));}}'
 
+      - name: Record remaining npm advisory inventory (read only)
+        # No dependency mutation, auto-fix, secret reads or deployment.
+        run: |
+          node <<'NODE'
+          const fs=require('node:fs');
+          const base=process.env.RUNNER_TEMP;
+          const scopes=[['all','acm-audit-all.json'],['production','acm-audit-prod.json']];
+          for (const [scope,filename] of scopes) {
+            try {
+              const audit=JSON.parse(fs.readFileSync(base+'/'+filename,'utf8'));
+              const inventory=Object.entries(audit.vulnerabilities||{}).map(([name,v])=>({
+                name,
+                severity:v.severity,
+                direct:!!v.isDirect,
+                range:v.range,
+                fixAvailable:v.fixAvailable===false?'no':v.fixAvailable===true?'yes':'major-or-specific',
+                via:(v.via||[]).map(a=>typeof a==='string'?a:a.name).slice(0,5)
+              })).sort((a,b)=>a.name.localeCompare(b.name));
+              console.log('P3H_ADVISORY_INVENTORY_'+scope.toUpperCase(),JSON.stringify(inventory));
+              fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY,
+                '### P3-H remaining advisories ('+scope+')\\n\\n'+
+                '| Package | Severity | Direct | Fix |\\n|---|---|---|---|\\n'+
+                inventory.map(v=>'| '+v.name+' | '+v.severity+' | '+v.direct+' | '+v.fixAvailable+' |').join('\\n')+'\\n\\n');
+            }catch(error){console.log('P3H_AUDIT_REPORT_UNAVAILABLE_'+scope,String(error.message));}
+          }
+          NODE
+
       - name: Validate Prisma Schema
         run: npm run prisma:validate
 
