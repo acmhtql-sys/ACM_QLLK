@@ -41,10 +41,23 @@ export class LocalOnlyDiskItemImageStorage implements ItemImageStorageProvider {
   }
 
   private async prepareRoot(): Promise<void> {
-    await fs.mkdir(this.root, { recursive: true, mode: 0o700 });
-    const stat = await fs.lstat(this.root);
-    if (!stat.isDirectory() || stat.isSymbolicLink()) {
-      throw new Error('LOCAL_IMAGE_STORAGE_UNSAFE_ROOT');
+    // Never use recursive mkdir here: it silently follows a pre-existing
+    // symlink anywhere in the path. Validate each component before descending.
+    // This is a local prototype; concurrent malicious path replacement still
+    // requires OS-level directory ownership/ACL review before production.
+    const parsed = path.parse(this.root);
+    let current = parsed.root;
+    for (const segment of this.root.slice(parsed.root.length).split(path.sep).filter(Boolean)) {
+      current = path.join(current, segment);
+      try {
+        await fs.mkdir(current, { mode: 0o700 });
+      } catch (error: unknown) {
+        if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+      }
+      const stat = await fs.lstat(current);
+      if (!stat.isDirectory() || stat.isSymbolicLink()) {
+        throw new Error('LOCAL_IMAGE_STORAGE_UNSAFE_ROOT');
+      }
     }
   }
 
