@@ -63,6 +63,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # The local merge combines a Vite/Vitest4 lockfile with RC5's
+          # older manifests. Re-resolve ONLY in this ephemeral runner to
+          # identify further code incompatibilities without committing it.
+          npm install --global npm@11 --no-fund --no-audit
+          npm install --package-lock-only --ignore-scripts --no-fund --no-audit
           npm ci --ignore-scripts --no-fund --no-audit
           npm run prisma:generate
           npm run build:shared
