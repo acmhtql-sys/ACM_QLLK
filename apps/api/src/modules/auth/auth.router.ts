@@ -48,8 +48,15 @@ authRouter.post('/login', loginRateLimiter, accountLoginRateLimiter, async (req:
       throw new AppError('Tài khoản đã bị tạm khóa do vi phạm chính sách bảo mật', 403);
     }
 
+    // Cloud Staging is read-only even for the narrowly allowed login endpoint.
+    // Rate limiters remain active in memory; never increment login counters or lock accounts here.
+    // env validation requires STAGING_READ_ONLY=true for this deployment profile.
+    const isCloudStagingReadOnlyLogin = env.ACM_DEPLOYMENT_PROFILE === 'cloud_staging';
     const isPasswordValid = await bcrypt.compare(password, user.passwordHash);
     if (!isPasswordValid) {
+      if (isCloudStagingReadOnlyLogin) {
+        throw new AppError('Email hoặc mật khẩu không chính xác', 401);
+      }
       // Execute counter increment and account locking atomically inside a PostgreSQL transaction.
       // The row-level lock acquired during tx.user.update prevents concurrent requests from observing
       // or resetting failedLoginAttempts >= MAX_FAILED_LOGIN_ATTEMPTS before isLocked is committed.
@@ -94,6 +101,45 @@ authRouter.post('/login', loginRateLimiter, accountLoginRateLimiter, async (req:
 
       // CRITICAL: Return standard 401 error message so attacker gets NO indication of admin status
       throw new AppError('Email hoặc mật khẩu không chính xác', 401);
+    }
+
+    if (isCloudStagingReadOnlyLogin) {
+      // Re-read security-relevant fields without a transaction or any UPDATE.
+      // Reject a disabled/locked/changed account and a breached existing login threshold.
+      const latestUser = await prisma.user.findUnique({ where: { id: user.id } });
+      if (
+        !latestUser ||
+        !latestUser.isActive ||
+        latestUser.isLocked ||
+        latestUser.passwordHash !== user.passwordHash ||
+        latestUser.failedLoginAttempts >= MAX_FAILED_LOGIN_ATTEMPTS
+      ) {
+        throw new AppError('Tài khoản không còn đủ điều kiện đăng nhập', 403);
+      }
+
+      const tokenPayload = {
+        id: latestUser.id,
+        email: latestUser.email,
+        role: latestUser.role,
+        fullName: latestUser.fullName,
+        pwdTag: computePasswordTag(latestUser.id, latestUser.passwordHash),
+      };
+      const token = jwt.sign(tokenPayload, env.JWT_SECRET, {
+        expiresIn: env.JWT_EXPIRES_IN as any,
+      });
+      return sendSuccess(
+        res,
+        {
+          token,
+          user: {
+            id: latestUser.id,
+            email: latestUser.email,
+            fullName: latestUser.fullName,
+            role: latestUser.role,
+          },
+        },
+        'Đăng nhập thành công'
+      );
     }
 
     // Atomically reset failed login attempts on successful authentication inside a Serializable transaction.

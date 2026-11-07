@@ -1,0 +1,37 @@
+# ACM Cloud Staging – reviewed FREE-only Render Blueprint.
+# DO NOT put credentials or application data in Git. Do not enable auto deploy.
+services:
+  - type: web
+    name: acm-api-staging
+    runtime: node
+    plan: free
+    region: singapore
+    branch: codex/cloud-staging-p2e-readonly-deploy-20261107
+    autoDeployTrigger: off
+    buildCommand: npm ci --include=dev && npm run prisma:generate && npm run build:shared && npm run build:api
+    startCommand: npm run start --workspace=@acm/api
+    healthCheckPath: /api/v1/health/readiness
+    envVars:
+      - key: NODE_VERSION
+        value: "22.16.0"
+      - key: NODE_ENV
+        value: production
+      - key: API_PREFIX
+        value: /api/v1
+      - key: ACM_DEPLOYMENT_PROFILE
+        value: cloud_staging
+      - key: STAGING_READ_ONLY
+        value: "true"
+      # Fail-closed in Cloud Staging: never enable login from a Blueprint sync.
+      - key: ALLOW_STAGING_AUTH_LOGIN
+        value: "false"
+      - key: JWT_EXPIRES_IN
+        value: 1d
+      - key: LOG_LEVEL
+        value: info
+      - key: DATABASE_URL
+        sync: false
+      - key: CORS_ORIGIN
+        sync: false
+      - key: JWT_SECRET
+        generateValue: true

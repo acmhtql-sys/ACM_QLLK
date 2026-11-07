@@ -171,3 +171,19 @@ export async function authenticateOptional(req: Request, _res: Response, next: N
 
   next();
 }
+
+/**
+ * Prevent unauthenticated catalog and stock reads in Cloud Staging.
+ * Non-staging environments retain existing optional-auth catalog behavior.
+ */
+export async function authenticateCatalogInStaging(
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> {
+  const profile = process.env.ACM_DEPLOYMENT_PROFILE ?? env.ACM_DEPLOYMENT_PROFILE;
+  if (profile === 'cloud_staging') {
+    return authenticate(req, res, next);
+  }
+  return authenticateOptional(req, res, next);
+}

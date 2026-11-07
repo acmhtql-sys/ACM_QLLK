@@ -1,6 +1,6 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { sendSuccess } from '../../shared/response';
-import { authenticate } from '../../middleware/auth';
+import { authenticate, authenticateCatalogInStaging } from '../../middleware/auth';
 import { authorizeRoles } from '../../middleware/rbac';
 import { UserRole } from '@prisma/client';
 import { AppError } from '../../shared/AppError';
@@ -18,7 +18,7 @@ export const categoriesRouter = Router();
  * List all categories with parent reference and item/child counts.
  * RBAC: Open to all authenticated/public users for catalog browsing.
  */
-categoriesRouter.get('/', async (_req: Request, res: Response, next: NextFunction) => {
+categoriesRouter.get('/', authenticateCatalogInStaging, async (_req: Request, res: Response, next: NextFunction) => {
   try {
     const categories = await categoriesService.listCategories();
     return sendSuccess(res, categories, 'Danh sách danh mục linh kiện');
@@ -31,7 +31,7 @@ categoriesRouter.get('/', async (_req: Request, res: Response, next: NextFunctio
  * GET /api/v1/categories/:id
  * Get single category detail by UUID.
  */
-categoriesRouter.get('/:id', async (req: Request, res: Response, next: NextFunction) => {
+categoriesRouter.get('/:id', authenticateCatalogInStaging, async (req: Request, res: Response, next: NextFunction) => {
   try {
     const paramParsed = categoryIdParamSchema.safeParse(req.params);
     if (!paramParsed.success) {

@@ -1,6 +1,6 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { sendSuccess } from '../../shared/response';
-import { authenticate, authenticateOptional } from '../../middleware/auth';
+import { authenticate, authenticateCatalogInStaging } from '../../middleware/auth';
 import { authorizeRoles } from '../../middleware/rbac';
 import { UserRole } from '@prisma/client';
 import { AppError } from '../../shared/AppError';
@@ -19,7 +19,7 @@ export const itemsRouter = Router();
  * Reads catalog with search, category/type filter, active status, low-stock filter, pagination, and sorting.
  * RBAC: Students can only view active items.
  */
-itemsRouter.get('/', authenticateOptional, async (req: Request, res: Response, next: NextFunction) => {
+itemsRouter.get('/', authenticateCatalogInStaging, async (req: Request, res: Response, next: NextFunction) => {
   try {
     const parsedQuery = queryItemsSchema.safeParse(req.query);
     if (!parsedQuery.success) {
@@ -44,7 +44,7 @@ itemsRouter.get('/', authenticateOptional, async (req: Request, res: Response, n
  * Reads item by asset barcode or item SKU code.
  * RBAC: Students cannot view inactive items.
  */
-itemsRouter.get('/barcode/:barcode', authenticateOptional, async (req: Request, res: Response, next: NextFunction) => {
+itemsRouter.get('/barcode/:barcode', authenticateCatalogInStaging, async (req: Request, res: Response, next: NextFunction) => {
   try {
     const item = await itemsService.getItemByBarcode(req.params.barcode, req.user);
     return sendSuccess(res, item, 'Thông tin linh kiện theo barcode');
@@ -58,7 +58,7 @@ itemsRouter.get('/barcode/:barcode', authenticateOptional, async (req: Request, 
  * Reads item detail and location stock balances.
  * RBAC: Students cannot view inactive items.
  */
-itemsRouter.get('/:id', authenticateOptional, async (req: Request, res: Response, next: NextFunction) => {
+itemsRouter.get('/:id', authenticateCatalogInStaging, async (req: Request, res: Response, next: NextFunction) => {
   try {
     const item = await itemsService.getItemById(req.params.id, req.user);
     return sendSuccess(res, item, 'Thông tin chi tiết linh kiện');

@@ -39,5 +39,9 @@
     "typescript"
   ],
   "author": "ACM Engineering Team",
-  "license": "UNLICENSED"
+  "license": "UNLICENSED",
+  "overrides": {
+    "body-parser": "1.20.9",
+    "follow-redirects": "1.16.2"
+  }
 }
