@@ -851,7 +851,7 @@ export class BorrowService {
       // Cache shape alone cannot authenticate a receipt number. Prove that
       // the exact return number belongs to this borrow in PostgreSQL.
       // This is read-only; no second return or transaction may start.
-      if (!await hasAuthoritativeReturnReceipt(id, cached.returnNumber)) {
+      if (!await hasAuthoritativeReturnReceipt(id, cached.returnNumber, currentUser.id)) {
         return reportCorruptCache('return_receipt_not_found');
       }
       return cached;

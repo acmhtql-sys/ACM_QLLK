@@ -485,6 +485,138 @@ describe('D8 integration: same-source concurrency and cross-location rejection',
     }
   }, 30000);
 
+  it('CI-local DB: forged cache cannot borrow a receipt from another borrow or receiver', async () => {
+    assertSafeTestDatabaseUrl(process.env.DATABASE_URL);
+    const [{ db }] = await prisma.$queryRaw<Array<{ db: string }>>`SELECT current_database() AS db`;
+    assertRuntimeDatabaseIsTest(db);
+
+    const student = await prisma.user.findFirst({
+      where: { email: 'student@acm.local', role: UserRole.STUDENT },
+    });
+    expect(student).not.toBeNull();
+    let foreignBorrowId: string | undefined;
+    const receiptIds: string[] = [];
+    const keys: string[] = [];
+    try {
+      const foreignBorrow = await prisma.borrowRequest.create({
+        data: {
+          requestNumber: `BR-FGN-${suffix}`,
+          borrowerId: student!.id,
+          status: BorrowStatus.HANDED_OVER,
+          purpose: 'CI synthetic foreign receipt guard',
+          expectedBorrowDate: new Date('2026-11-01T00:00:00Z'),
+          expectedReturnDate: new Date('2026-11-15T00:00:00Z'),
+        },
+      });
+      foreignBorrowId = foreignBorrow.id;
+      const foreignReceipt = await prisma.returnTransaction.create({
+        data: {
+          returnNumber: `RT-FGN-${suffix}`,
+          borrowRequestId: foreignBorrow.id,
+          receiverId: operator.id,
+        },
+      });
+      receiptIds.push(foreignReceipt.id);
+      const otherReceiverReceipt = await prisma.returnTransaction.create({
+        data: {
+          returnNumber: `RT-OTHER-${suffix}`,
+          borrowRequestId: created.requestId,
+          receiverId: student!.id,
+        },
+      });
+      receiptIds.push(otherReceiverReceipt.id);
+      const input = { items: [{
+        borrowDetailId: created.detailId,
+        returnedQuantity: 1,
+        locationId: created.sourceLocationId,
+        condition: AssetCondition.GOOD,
+      }] };
+      const endpoint = `/api/v1/borrow-requests/${created.requestId}/return`;
+      const requestHash = idempotencyService.generateFingerprint(operator.id, endpoint, input);
+      const cacheBorrow = {
+        id: created.requestId, requestNumber, borrowerId: student!.id,
+        status: BorrowStatus.PARTIALLY_RETURNED,
+        purpose: 'CI-only forged COMPLETED response',
+        itemCount: 1,
+        details: [{ id: created.detailId, itemId: created.itemId,
+          quantity: 4, returnedQuantity: 1 }],
+      };
+      const app = createApp();
+      const token = jwt.sign({
+        id: operator.id,
+        pwdTag: computePasswordTag(operator.id, adminPasswordHash),
+        email: operator.email,
+        role: operator.role,
+        fullName: operator.fullName,
+      }, env.JWT_SECRET, { expiresIn: '1h' });
+
+      for (const [i, item] of [
+        { suffix: 'FOREIGN', number: foreignReceipt.returnNumber },
+        { suffix: 'OTHERACTOR', number: otherReceiverReceipt.returnNumber },
+      ].entries()) {
+        const key = `${idempotencyKeyPrefix}${item.suffix}`;
+        keys.push(key);
+        await prisma.idempotencyRecord.create({
+          data: {
+            key, userId: operator.id, endpoint, requestHash,
+            status: 'COMPLETED', statusCode: 200,
+            responseBody: { returnNumber: item.number, borrowRequest: cacheBorrow },
+            expiresAt: new Date(Date.now() + 86_400_000),
+          },
+        });
+        // A receipt exists, but not for the exact borrow + actor tuple.
+        await expect(borrowService.returnBorrowRequest(
+          created.requestId, input, operator, key
+        )).rejects.toMatchObject({ statusCode: 409 });
+        const readOnly = await httpRequest(app)
+          .get(`/api/v1/borrow-requests/${created.requestId}/return-status/${key}`)
+          .set('Authorization', `Bearer ${token}`);
+        expect(readOnly.status).toBe(200);
+        expect(readOnly.body.data).toMatchObject({
+          state: 'NEEDS_RECONCILIATION', requiresReconciliation: true,
+        });
+        expect(await prisma.idempotencyRecord.findUnique({ where: { key } }))
+          .toMatchObject({ status: 'COMPLETED', statusCode: 200 });
+        expect(i).toBeLessThan(2);
+      }
+      const [status, detail, balance, audits, movementCount] = await Promise.all([
+        prisma.borrowRequest.findUnique({ where: { id: created.requestId } }),
+        prisma.borrowDetail.findUnique({ where: { id: created.detailId } }),
+        prisma.stockBalance.findUnique({ where: {
+          itemId_locationId: {
+            itemId: created.itemId, locationId: created.sourceLocationId,
+          },
+        } }),
+        prisma.auditLog.count({ where: {
+          entity: 'BorrowRequest', entityId: created.requestId, action: 'RETURN',
+        } }),
+        prisma.stockMovement.count({ where: {
+          itemId: created.itemId, referenceType: 'RETURN',
+        } }),
+      ]);
+      expect(status?.status).toBe(BorrowStatus.HANDED_OVER);
+      expect(detail?.returnedQuantity).toBe(0);
+      expect(balance).toMatchObject({
+        onHand: 6, borrowed: 4, reserved: 0, quarantined: 0,
+      });
+      expect(audits).toBe(0);
+      expect(movementCount).toBe(0);
+    } finally {
+      // All rows are synthetic. Cleanup is independently guarded, including
+      // failure midway through the test, before the real writer/race case.
+      assertSafeTestDatabaseUrl(process.env.DATABASE_URL);
+      const [{ db: actualDb }] = await prisma.$queryRaw<Array<{ db: string }>>`
+        SELECT current_database() AS db
+      `;
+      assertRuntimeDatabaseIsTest(actualDb);
+      await prisma.idempotencyRecord.deleteMany({ where: { key: { in: keys } } });
+      await prisma.returnTransaction.deleteMany({ where: { id: { in: receiptIds } } });
+      if (foreignBorrowId) {
+        await prisma.borrowRequest.delete({ where: { id: foreignBorrowId } });
+      }
+    }
+  }, 30000);
+
   it('real row lock serializes same-source returns and denies A-to-B writes', async () => {
     const input = {
       items: [{

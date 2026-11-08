@@ -62,10 +62,14 @@ export function parseCachedReturnEnvelope(
  */
 export async function hasAuthoritativeReturnReceipt(
   borrowRequestId: string,
-  returnNumber: string
+  returnNumber: string,
+  receiverId: string
 ): Promise<boolean> {
+  // The legacy idempotency key is owned by the receiver who committed
+  // ReturnTransaction.receiverId. Require all three independent DB fields.
+  // This is NOT a durable key-to-receipt linkage (Stage4C G05/G06 still HOLD).
   const receipt = await prisma.returnTransaction.findFirst({
-    where: { borrowRequestId, returnNumber },
+    where: { borrowRequestId, returnNumber, receiverId },
     select: { id: true },
   });
   return typeof receipt?.id === 'string' && receipt.id.length > 0;

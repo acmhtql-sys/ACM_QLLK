@@ -325,7 +325,7 @@ describe('Phase 11D — Borrow return idempotency (mock, zero DB writes)', () =>
     await expect(borrowService.returnBorrowRequest(borrowId, input, user as any, key))
       .rejects.toMatchObject({ statusCode: 409 });
     expect(receiptLookup()).toHaveBeenCalledWith({
-      where: { borrowRequestId: borrowId, returnNumber: 'RT-NONEXISTENT' },
+      where: { borrowRequestId: borrowId, returnNumber: 'RT-NONEXISTENT', receiverId: user.id },
       select: { id: true },
     });
     expect(prisma.$transaction).not.toHaveBeenCalled();
@@ -333,6 +333,27 @@ describe('Phase 11D — Borrow return idempotency (mock, zero DB writes)', () =>
       'RC5_RETURN_CACHE_RECONCILIATION_REQUIRED',
       expect.objectContaining({ reason: 'return_receipt_not_found' })
     );
+  });
+
+  it('IDEM-17: a real receipt owned by another receiver cannot acknowledge this user key', async () => {
+    const first = await borrowService.returnBorrowRequest(borrowId, input, user as any, key);
+    vi.clearAllMocks();
+    // Equivalent to a receipt belonging to a different receiver: the
+    // authoritative query must include actor ownership, or it would match.
+    receiptLookup().mockResolvedValueOnce(null);
+    mocks.precheck.mockResolvedValueOnce({
+      action: 'RETURN_CACHED', statusCode: 200,
+      requestHash: proceed.requestHash,
+      existingRecord: { status: 'COMPLETED', statusCode: 200 },
+      cachedResponse: first,
+    });
+    await expect(borrowService.returnBorrowRequest(borrowId, input, user as any, key))
+      .rejects.toMatchObject({ statusCode: 409 });
+    expect(receiptLookup()).toHaveBeenCalledWith({
+      where: { borrowRequestId: borrowId, returnNumber: first.returnNumber, receiverId: user.id },
+      select: { id: true },
+    });
+    expect(prisma.$transaction).not.toHaveBeenCalled();
   });
 
   it('IDEM-15: a cache missing required borrow DTO fields is rejected without a read', async () => {

@@ -65,7 +65,7 @@ describe('Phase 11D — read-only lost-session return-key status', () => {
       select: { userId: true, endpoint: true, status: true, statusCode: true, responseBody: true },
     });
     expect(receiptLookup()).toHaveBeenCalledWith({
-      where: { borrowRequestId: borrowId, returnNumber: 'RT-TEST-0001' },
+      where: { borrowRequestId: borrowId, returnNumber: 'RT-TEST-0001', receiverId: user.id },
       select: { id: true },
     });
   });
@@ -130,6 +130,19 @@ describe('Phase 11D — read-only lost-session return-key status', () => {
       state: 'NEEDS_RECONCILIATION', requiresReconciliation: true,
     });
     expect(receiptLookup()).toHaveBeenCalledOnce();
+  });
+
+  it('STATUS-12: authoritatively scope a valid receipt to the idempotency sender', async () => {
+    lookup().mockResolvedValue(record());
+    // A real receipt with a different receiver must fail the scoped query.
+    receiptLookup().mockResolvedValueOnce(null);
+    expect(await getBorrowReturnStatus(borrowId, key, user as any)).toEqual({
+      state: 'NEEDS_RECONCILIATION', requiresReconciliation: true,
+    });
+    expect(receiptLookup()).toHaveBeenCalledWith({
+      where: { borrowRequestId: borrowId, returnNumber: 'RT-TEST-0001', receiverId: user.id },
+      select: { id: true },
+    });
   });
 
   it('STATUS-11: cannot report COMPLETED when receipt lookup is absent', async () => {

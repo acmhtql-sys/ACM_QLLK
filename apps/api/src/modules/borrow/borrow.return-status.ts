@@ -44,7 +44,7 @@ export async function getBorrowReturnStatus(
     return { state: 'NEEDS_RECONCILIATION', requiresReconciliation: true };
   }
   const cached = parseCachedReturnEnvelope(record.responseBody, borrowId);
-  if (!cached || !await hasAuthoritativeReturnReceipt(borrowId, cached.returnNumber)) {
+  if (!cached || !await hasAuthoritativeReturnReceipt(borrowId, cached.returnNumber, record.userId)) {
     // Shape and an idempotency COMPLETED flag are insufficient to prove a
     // physical receipt. Never report a valid, but nonexistent, cached number.
     return { state: 'NEEDS_RECONCILIATION', requiresReconciliation: true };
