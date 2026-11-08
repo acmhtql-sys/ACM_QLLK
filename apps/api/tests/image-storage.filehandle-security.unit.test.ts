@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { spawnSync } from 'node:child_process';
 import { constants, promises as fs } from 'node:fs';
-import { link, mkdtemp, readFile, readdir, rename, rm, symlink, writeFile } from 'node:fs/promises';
+import { appendFile, link, mkdtemp, readFile, readdir, rename, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { LocalOnlyDiskItemImageStorage } from '../src/modules/storage/image-storage.local';
@@ -136,4 +137,53 @@ describe('L4 isolated local image: file-descriptor / NOFOLLOW regression', () =>
       .rejects.toThrow('LOCAL_IMAGE_STORAGE_UNSAFE_RECORD');
     expect(await readdir(sandbox)).toContain('no-delete.json');
   });
+  it('FD-09: record reads require O_NONBLOCK so a swapped FIFO cannot stall open', async () => {
+    const saved = await storage.save(image());
+    const target = path.join(root, saved.id + '.json');
+    const realOpen = fs.open.bind(fs);
+    let checked = false;
+    vi.spyOn(fs, 'open').mockImplementation(async (...args) => {
+      if (String(args[0]) === target) {
+        expect((args[1] as number) & constants.O_NONBLOCK).not.toBe(0);
+        checked = true;
+      }
+      return realOpen(...args);
+    });
+    expect((await storage.readForItem(ITEM, saved.id))?.contents).toEqual(PNG);
+    expect(checked).toBe(true);
+  });
+
+  it('FD-10: appending after fstat is rejected without unbounded readFile', async () => {
+    const saved = await storage.save(image());
+    const target = path.join(root, saved.id + '.json');
+    const realOpen = fs.open.bind(fs);
+    let grew = false;
+    vi.spyOn(fs, 'open').mockImplementation(async (...args) => {
+      const handle = await realOpen(...args);
+      if (String(args[0]) === target) {
+        const realStat = handle.stat.bind(handle);
+        vi.spyOn(handle, 'stat').mockImplementation(async (...statArgs) => {
+          const stat = await realStat(...statArgs);
+          await appendFile(target, '   ');
+          grew = true;
+          return stat;
+        });
+      }
+      return handle;
+    });
+    await expect(storage.readForItem(ITEM, saved.id))
+      .rejects.toThrow('LOCAL_IMAGE_STORAGE_UNSAFE_RECORD');
+    expect(grew).toBe(true);
+  });
+
+  it.skipIf(process.platform !== 'linux')('FD-11: real Linux FIFO replacement is rejected promptly', async () => {
+    const saved = await storage.save(image());
+    const target = path.join(root, saved.id + '.json');
+    await rm(target);
+    const result = spawnSync('mkfifo', [target], { encoding: 'utf8' });
+    expect(result.status, result.stderr).toBe(0);
+    await expect(storage.readForItem(ITEM, saved.id))
+      .rejects.toThrow('LOCAL_IMAGE_STORAGE_UNSAFE_RECORD');
+  });
+
 });

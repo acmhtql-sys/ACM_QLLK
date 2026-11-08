@@ -114,13 +114,19 @@ export class LocalOnlyDiskItemImageStorage implements ItemImageStorageProvider {
     // between the two calls. Open O_NOFOLLOW and inspect the SAME descriptor.
     // If the platform cannot guarantee NOFOLLOW, deny reads rather than guess.
     const noFollow = constants.O_NOFOLLOW;
+    const nonBlock = constants.O_NONBLOCK;
     if (typeof noFollow !== 'number') {
       throw new Error('LOCAL_IMAGE_STORAGE_NOFOLLOW_UNAVAILABLE');
+    }
+    // A swapped FIFO could block forever during open(), before stat() can
+    // reject it. Fail closed if nonblocking open cannot be requested.
+    if (typeof nonBlock !== 'number') {
+      throw new Error('LOCAL_IMAGE_STORAGE_NONBLOCK_UNAVAILABLE');
     }
     let serialized: string;
     let handle: Awaited<ReturnType<typeof fs.open>> | undefined;
     try {
-      handle = await fs.open(file, constants.O_RDONLY | noFollow);
+      handle = await fs.open(file, constants.O_RDONLY | noFollow | nonBlock);
       const stat = await handle.stat();
       // Reject hard-linked records: a file owned/changed outside this root
       // could otherwise pass an ordinary regular-file check.
@@ -128,7 +134,24 @@ export class LocalOnlyDiskItemImageStorage implements ItemImageStorageProvider {
           stat.size <= 0 || stat.size > MAX_RECORD_BYTES) {
         throw new Error('LOCAL_IMAGE_STORAGE_UNSAFE_RECORD');
       }
-      serialized = await handle.readFile({ encoding: 'utf8' });
+      // stat.size is an admission check, not a bound on readFile(): another
+      // writer can enlarge the record between stat() and readFile(). Limit
+      // allocation and reads to the admitted size, and reject a trailing byte.
+      const bytes = Buffer.alloc(stat.size);
+      let offset = 0;
+      while (offset < bytes.length) {
+        const result = await handle.read(bytes, offset, bytes.length - offset, offset);
+        if (result.bytesRead === 0) {
+          throw new Error('LOCAL_IMAGE_STORAGE_UNSAFE_RECORD');
+        }
+        offset += result.bytesRead;
+      }
+      const trailing = Buffer.alloc(1);
+      const probe = await handle.read(trailing, 0, 1, offset);
+      if (probe.bytesRead !== 0) {
+        throw new Error('LOCAL_IMAGE_STORAGE_UNSAFE_RECORD');
+      }
+      serialized = bytes.toString('utf8');
     } catch (error: unknown) {
       const code = (error as NodeJS.ErrnoException).code;
       if (code === 'ENOENT') return null;
