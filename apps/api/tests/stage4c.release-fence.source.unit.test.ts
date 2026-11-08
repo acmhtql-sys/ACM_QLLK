@@ -29,6 +29,7 @@ describe('Stage4C / RC5 release fence — source-only, zero database/network', (
     expect(router).not.toContain('borrow.return-commit-preflight.policy');
     expect(router).not.toContain('borrow.return-operation-foundation');
     expect(router).not.toContain('borrow.return-stock-conservation.review');
+    expect(router).not.toContain('borrow.return-qc-claim.review');
   });
 
   it('DBA-03: keeps pure Stage4C business guards UNWIRED from legacy return service', () => {
@@ -37,6 +38,7 @@ describe('Stage4C / RC5 release fence — source-only, zero database/network', (
     expect(service).not.toContain('borrow.return-operation-foundation');
     expect(service).not.toContain('borrow.return-workflow-access.policy');
     expect(service).not.toContain('borrow.return-stock-conservation.review');
+    expect(service).not.toContain('borrow.return-qc-claim.review');
   });
 
   it('DBA-04: preserves RC5 Idempotency-Key and read-only lost-session status endpoint', () => {
