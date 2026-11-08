@@ -9,11 +9,16 @@ export function errorHandler(
   res: Response,
   _next: NextFunction
 ): Response {
-  // Redact potential connection strings containing passwords from logs
-  const sanitizedMessage = String(err.message || '').replace(
-    /postgresql:\/\/[^:]+:[^@]+@/g,
-    'postgresql://***:***@'
-  );
+  // Prisma P2002 messages can contain raw conflicting values, column and
+  // constraint names. Never send those details to HTTP clients or logs.
+  // This generic handler does not decide whether an error relates to Stage4C;
+  // the future writer must map its own named conflict to a scoped AppError.
+  const sanitizedMessage = err?.code === 'P2002'
+    ? 'Prisma unique constraint violation (P2002)'
+    : String(err?.message || '').replace(
+        /postgresql:\/\/[^:]+:[^@]+@/g,
+        'postgresql://***:***@'
+      );
   logger.error(`Unhandled error: ${sanitizedMessage}`);
 
   // Compressed request bodies are intentionally unsupported. Respond with 415
@@ -64,7 +69,6 @@ export function errorHandler(
       return res.status(409).json({
         success: false,
         message: 'Dữ liệu đã tồn tại trong hệ thống (vi phạm ràng buộc duy nhất)',
-        fields: err.meta?.target,
       });
     }
     if (err.code === 'P2025') {
