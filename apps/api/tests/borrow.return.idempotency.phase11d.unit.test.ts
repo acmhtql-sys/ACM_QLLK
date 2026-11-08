@@ -173,6 +173,32 @@ describe('Phase 11D — Borrow return idempotency (mock, zero DB writes)', () =>
     expect(txMock().returnTransaction.create).not.toHaveBeenCalled();
   });
 
+  it.each(['RETRY_PENDING', 'RETRY_FAILED'] as const)(
+    'IDEM-08: ambiguous %s is reconciled, never auto-replayed after 30 seconds',
+    async (action) => {
+      mocks.precheck.mockResolvedValueOnce({
+        action, requestHash: proceed.requestHash,
+        existingRecord: { status: action === 'RETRY_PENDING' ? 'PENDING' : 'FAILED' },
+      });
+      await expect(borrowService.returnBorrowRequest(borrowId, input, user as any, key))
+        .rejects.toMatchObject({ statusCode: 409 });
+      expect(prisma.$transaction).not.toHaveBeenCalled();
+      expect(txMock().returnTransaction.create).not.toHaveBeenCalled();
+      expect(txMock().stockBalance.update).not.toHaveBeenCalled();
+      expect(txMock().idempotencyRecord.update).not.toHaveBeenCalled();
+      expect(txMock().idempotencyRecord.create).not.toHaveBeenCalled();
+    }
+  );
+
+  it('IDEM-09: unknown precheck decision must fail closed before stock mutation', async () => {
+    mocks.precheck.mockResolvedValueOnce({
+      action: 'SOMETHING_NEW', requestHash: proceed.requestHash,
+    });
+    await expect(borrowService.returnBorrowRequest(borrowId, input, user as any, key))
+      .rejects.toMatchObject({ statusCode: 409 });
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+
   it('IDEM-05: concurrent key unique-constraint conflict maps to HTTP 409', async () => {
     const conflict = Object.assign(new Error('Unique constraint failed'), {
       code: 'P2002', meta: { target: ['key'] },

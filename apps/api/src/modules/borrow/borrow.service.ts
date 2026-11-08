@@ -835,32 +835,33 @@ export class BorrowService {
       return cached;
     }
 
+    // A stale PENDING or FAILED idempotency record is not evidence that an
+    // earlier stock/receipt transaction did NOT commit. For physical returns,
+    // never auto-replay ambiguous attempts, even after the generic 30s timeout.
+    // GET /:id/return-status/:key remains read-only and requires reconciliation.
+    if (precheck && precheck.action !== 'PROCEED') {
+      throw new AppError(
+        'Giao dịch hoàn trả chưa được đối soát; kiểm tra return-status và liên hệ quản lý kho trước khi thao tác lại',
+        409
+      );
+    }
+
     let result: { borrowRequest: BorrowRequestResponse; returnNumber: string };
     try {
       result = await runBorrowTransaction(async (tx) => {
         if (idempotencyKey && precheck) {
-          if (precheck.action === 'RETRY_PENDING' || precheck.action === 'RETRY_FAILED') {
-            await tx.idempotencyRecord.update({
-              where: { key: idempotencyKey },
-              data: {
-                status: 'PENDING',
-                requestHash: precheck.requestHash,
-                createdAt: new Date(),
-                expiresAt: idempotencyService.getExpirationDate(24),
-              },
-            });
-          } else {
-            await tx.idempotencyRecord.create({
-              data: {
-                key: idempotencyKey,
-                userId: currentUser.id,
-                endpoint,
-                requestHash: precheck.requestHash,
-                status: 'PENDING',
-                expiresAt: idempotencyService.getExpirationDate(24),
-              },
-            });
-          }
+          // Only a proven-new key can start a physical return. Any pending,
+          // failed or unknown prior attempt is an operator-reconciliation case.
+          await tx.idempotencyRecord.create({
+            data: {
+              key: idempotencyKey,
+              userId: currentUser.id,
+              endpoint,
+              requestHash: precheck.requestHash,
+              status: 'PENDING',
+              expiresAt: idempotencyService.getExpirationDate(24),
+            },
+          });
         }
 
       // D8-P0: serialize a BorrowRequest BEFORE reading returnedQuantity.
