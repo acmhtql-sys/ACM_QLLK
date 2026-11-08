@@ -1,9 +1,11 @@
 /**
  * L4 review-only item-image storage contract.
  *
- * There is deliberately NO HTTP upload route, filesystem writer, Cloudinary
- * client or production storage implementation. The authenticated application
- * layer must enforce item-level RBAC before calling any future adapter.
+ * There is deliberately NO MOUNTED or operational HTTP upload route,
+ * Cloudinary client, or production-ready storage implementation. A local
+ * filesystem prototype and an UNMOUNTED HTTP review candidate are separate.
+ * The authenticated application layer must enforce item-level RBAC and audit
+ * before any future adapter can accept real data.
  */
 import { createHash } from 'node:crypto';
 

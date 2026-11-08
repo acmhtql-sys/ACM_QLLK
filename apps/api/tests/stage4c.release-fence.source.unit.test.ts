@@ -57,6 +57,15 @@ describe('Stage4C / RC5 release fence — source-only, zero database/network', (
     expect(service).toContain('returnItem.locationId !== sourceLocationId');
   });
 
+  it('L4-07: HTTP image review router is NOT mounted into the real application', () => {
+    const app = source('../src/app.ts');
+    const itemRouter = source('../src/modules/items/items.router.ts');
+    expect(app).not.toContain('image-storage.http-review');
+    expect(app).not.toContain('local-review-images');
+    expect(itemRouter).not.toContain('image-storage.http-review');
+    expect(itemRouter).not.toContain('createLocalItemImageReviewRouter');
+  });
+
   it('DBA-06: inert Stage4C helper cannot turn into an operational writer via flag alone', () => {
     expect(() => assertLegacyReturnWriteAllowed('false')).not.toThrow();
     expect(() => assertLegacyReturnWriteAllowed('true')).toThrow();
