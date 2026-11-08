@@ -7,6 +7,13 @@ import { createLocalItemImageReviewRouter, isLocalImageHttpReviewEnabled } from 
 import { TestOnlyMemoryItemImageStorage } from '../src/modules/storage/image-storage.memory';
 import { MAX_ITEM_IMAGE_BYTES } from '../src/modules/storage/image-storage.contract';
 
+// This suite isolates HTTP parsing/provider behavior with a synthetic principal.
+// Mandatory REAL JWT/live-role authentication is verified separately against
+// ephemeral CI PostgreSQL in image-storage.http-auth.integration.test.ts.
+vi.mock('../src/middleware/auth', () => ({
+  authenticate: (_req: Request, _res: Response, next: NextFunction) => next(),
+}));
+
 const A='11111111-1111-4111-8111-111111111111', B='22222222-2222-4222-8222-222222222222';
 const ACTOR='33333333-3333-4333-8333-333333333333';
 const PNG=Buffer.from([137,80,78,71,13,10,26,10,0,1,2]);

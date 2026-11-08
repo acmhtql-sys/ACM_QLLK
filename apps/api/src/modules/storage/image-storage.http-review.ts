@@ -2,9 +2,9 @@
  * L4 experimental HTTP candidate for synthetic local-only image fixtures.
  *
  * UNMOUNTED BY DESIGN. This module is NOT imported by app.ts or items.router.
- * The future integrator must provide the REAL `authenticate` middleware
- * upstream, an authenticated/audited item lookup, retention/cleanup, antivirus
- * and independent AppSec/owner approval before it can become an operational API.
+ * The router installs the existing ACM JWT + current-DB-role `authenticate`
+ * middleware itself, before RBAC and before any body parsing. This remains
+ * an UNMOUNTED review candidate pending item audit/retention/scan/owner signoff.
  *
  * No filesystem or cloud provider is instantiated by this router. All actual
  * data operations are delegated to an injected ItemImageStorageProvider.
@@ -12,6 +12,7 @@
 import express, { Router, Request, Response, NextFunction, ErrorRequestHandler } from 'express';
 import { UserRole } from '@prisma/client';
 import { authorizeRoles } from '../../middleware/rbac';
+import { authenticate } from '../../middleware/auth';
 import { AppError } from '../../shared/AppError';
 import {
   ImageStorageValidationError,
@@ -73,7 +74,7 @@ const localParserError: ErrorRequestHandler = (error, _req, res, next) => {
 /**
  * Future mount point candidate: /api/v1/local-review-images
  *
- * Routes (only if explicitly mounted AFTER real authenticate):
+ * Routes (router itself includes mandatory authenticate; still UNMOUNTED):
  * POST /:itemId           raw image/png|jpeg|webp, X-File-Name
  * GET  /:itemId/:imageId  private binary download, no public image URL
  *
@@ -85,6 +86,9 @@ export function createLocalItemImageReviewRouter(
 ): Router {
   const router = Router();
   router.use(requireLocalReviewMode);
+  // Always authenticate with ACM's real JWT + live user status/role; any
+  // upstream req.user alone must never authorize a local-image operation.
+  router.use(authenticate);
   router.use(authorizeRoles(UserRole.ADMIN, UserRole.LAB_MANAGER));
 
   const verifyItem = async (itemId: string): Promise<void> => {
@@ -115,7 +119,7 @@ export function createLocalItemImageReviewRouter(
         if (typeof originalName !== 'string') {
           throw new AppError('Thiếu tên tệp hợp lệ', 422);
         }
-        const actorId = req.user!.id; // Real JWT middleware REQUIRED before mount
+        const actorId = req.user!.id; // Derived from mandatory authenticate above
         await verifyItem(itemId);
         const saved = await storage.save({
           itemId,

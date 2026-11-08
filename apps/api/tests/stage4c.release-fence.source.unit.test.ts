@@ -66,6 +66,19 @@ describe('Stage4C / RC5 release fence — source-only, zero database/network', (
     expect(itemRouter).not.toContain('createLocalItemImageReviewRouter');
   });
 
+  it('L4-08: unmounted image review route embeds mandatory real authentication before RBAC and parsing', () => {
+    const router = source('../src/modules/storage/image-storage.http-review.ts');
+    expect(router).toContain("import { authenticate } from '../../middleware/auth'");
+    const gate = router.indexOf('router.use(requireLocalReviewMode)');
+    const auth = router.indexOf('router.use(authenticate)');
+    const role = router.indexOf('router.use(authorizeRoles');
+    const parser = router.indexOf('express.raw(');
+    expect(gate).toBeGreaterThanOrEqual(0);
+    expect(auth).toBeGreaterThan(gate);
+    expect(role).toBeGreaterThan(auth);
+    expect(parser).toBeGreaterThan(role);
+  });
+
   it('DBA-06: inert Stage4C helper cannot turn into an operational writer via flag alone', () => {
     expect(() => assertLegacyReturnWriteAllowed('false')).not.toThrow();
     expect(() => assertLegacyReturnWriteAllowed('true')).toThrow();
