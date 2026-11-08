@@ -826,13 +826,25 @@ export class BorrowService {
       : null;
 
     if (precheck?.action === 'RETURN_CACHED') {
-      const cached = precheck.cachedResponse as
-        | { borrowRequest: BorrowRequestResponse; returnNumber: string }
-        | undefined;
-      if (!cached?.borrowRequest || !cached?.returnNumber) {
-        throw new AppError('Kết quả giao dịch hoàn trả đã lưu không hợp lệ', 409);
+      const cached = precheck.cachedResponse;
+      // A status marked COMPLETED is not proof that its JSON body belongs to
+      // this borrow. A corrupt/misassociated cached receipt must NEVER be
+      // returned as a successful physical return or silently trigger a retry.
+      // Check the underlying row too: generic idempotency currently falls back
+      // from an absent statusCode to 200 for other (non-physical) endpoints.
+      const rawStatus = precheck.existingRecord?.statusCode;
+      if (
+        precheck.statusCode !== 200 ||
+        (precheck.existingRecord && rawStatus !== 200) ||
+        !cached || typeof cached !== 'object' || Array.isArray(cached) ||
+        !cached.borrowRequest || typeof cached.borrowRequest !== 'object' ||
+        Array.isArray(cached.borrowRequest) ||
+        cached.borrowRequest.id !== id ||
+        typeof cached.returnNumber !== 'string' || !cached.returnNumber.trim()
+      ) {
+        throw new AppError('Kết quả giao dịch hoàn trả đã lưu không hợp lệ; cần đối soát', 409);
       }
-      return cached;
+      return cached as { borrowRequest: BorrowRequestResponse; returnNumber: string };
     }
 
     // A stale PENDING or FAILED idempotency record is not evidence that an

@@ -369,6 +369,81 @@ describe('D8 integration: same-source concurrency and cross-location rejection',
     expect(claims).toBe(2);
   }, 30000);
 
+  it('CI-local DB: corrupted COMPLETED receipt cache cannot impersonate another return', async () => {
+    assertSafeTestDatabaseUrl(process.env.DATABASE_URL);
+    const [{ db }] = await prisma.$queryRaw<Array<{ db: string }>>`SELECT current_database() AS db`;
+    assertRuntimeDatabaseIsTest(db);
+
+    const input = { items: [{
+      borrowDetailId: created.detailId,
+      returnedQuantity: 1,
+      locationId: created.sourceLocationId,
+      condition: AssetCondition.GOOD,
+    }] };
+    const endpoint = `/api/v1/borrow-requests/${created.requestId}/return`;
+    const hash = idempotencyService.generateFingerprint(operator.id, endpoint, input);
+    const examples = [
+      {
+        key: `${idempotencyKeyPrefix}BADID`,
+        statusCode: 200,
+        responseBody: {
+          returnNumber: 'RT-CORRUPT-1',
+          borrowRequest: { id: created.destinationLocationId },
+        },
+      },
+      {
+        key: `${idempotencyKeyPrefix}BADCODE`,
+        statusCode: 500,
+        responseBody: {
+          returnNumber: 'RT-CORRUPT-2',
+          borrowRequest: { id: created.requestId },
+        },
+      },
+    ];
+    const app = createApp();
+    const token = jwt.sign({
+      id: operator.id,
+      pwdTag: computePasswordTag(operator.id, adminPasswordHash),
+      email: operator.email,
+      role: operator.role,
+      fullName: operator.fullName,
+    }, env.JWT_SECRET, { expiresIn: '1h' });
+    for (const item of examples) {
+      await prisma.idempotencyRecord.create({
+        data: {
+          key: item.key, userId: operator.id, endpoint,
+          requestHash: hash, status: 'COMPLETED',
+          statusCode: item.statusCode, responseBody: item.responseBody,
+          expiresAt: new Date(Date.now() + 86_400_000),
+        },
+      });
+      await expect(borrowService.returnBorrowRequest(
+        created.requestId, input, operator, item.key
+      )).rejects.toMatchObject({ statusCode: 409 });
+      const readOnly = await httpRequest(app)
+        .get(`/api/v1/borrow-requests/${created.requestId}/return-status/${item.key}`)
+        .set('Authorization', `Bearer ${token}`);
+      expect(readOnly.status).toBe(200);
+      expect(readOnly.body.data).toMatchObject({
+        state: 'NEEDS_RECONCILIATION', requiresReconciliation: true,
+      });
+    }
+    const [receipts, movements, detail, balance] = await Promise.all([
+      prisma.returnTransaction.count({ where: { borrowRequestId: created.requestId } }),
+      prisma.stockMovement.count({ where: { itemId: created.itemId, referenceType: 'RETURN' } }),
+      prisma.borrowDetail.findUnique({ where: { id: created.detailId } }),
+      prisma.stockBalance.findUnique({
+        where: { itemId_locationId: {
+          itemId: created.itemId, locationId: created.sourceLocationId,
+        } },
+      }),
+    ]);
+    expect(receipts).toBe(0);
+    expect(movements).toBe(0);
+    expect(detail?.returnedQuantity).toBe(0);
+    expect(balance).toMatchObject({ onHand: 6, borrowed: 4 });
+  }, 30000);
+
   it('real row lock serializes same-source returns and denies A-to-B writes', async () => {
     const input = {
       items: [{

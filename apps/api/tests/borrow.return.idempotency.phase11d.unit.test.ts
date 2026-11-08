@@ -223,6 +223,62 @@ describe('Phase 11D — Borrow return idempotency (mock, zero DB writes)', () =>
     );
   });
 
+  it('IDEM-10: mismatched or malformed cached receipt must never be acknowledged', async () => {
+    const bad = [
+      null, [],
+      { returnNumber: 'RT-VALID', borrowRequest: { id: 'WRONG-BORROW' } },
+      { returnNumber: 'RT-VALID', borrowRequest: [] },
+      { returnNumber: 'RT-VALID', borrowRequest: null },
+      { returnNumber: '', borrowRequest: { id: borrowId } },
+      { returnNumber: '   ', borrowRequest: { id: borrowId } },
+      { returnNumber: 23, borrowRequest: { id: borrowId } },
+    ];
+    for (const cachedResponse of bad) {
+      mocks.precheck.mockResolvedValueOnce({
+        action: 'RETURN_CACHED', requestHash: proceed.requestHash,
+        statusCode: 200, cachedResponse,
+      });
+      await expect(borrowService.returnBorrowRequest(borrowId, input, user as any, key))
+        .rejects.toMatchObject({ statusCode: 409 });
+    }
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+    expect(txMock().stockBalance.update).not.toHaveBeenCalled();
+    expect(txMock().returnTransaction.create).not.toHaveBeenCalled();
+  });
+
+  it.each([201, 202, 409, 500, undefined])(
+    'IDEM-11: cached receipt with non-success HTTP status %s requires reconciliation',
+    async (statusCode) => {
+      mocks.precheck.mockResolvedValueOnce({
+        action: 'RETURN_CACHED', requestHash: proceed.requestHash,
+        statusCode,
+        cachedResponse: {
+          returnNumber: 'RT-EXAMPLE', borrowRequest: { id: borrowId },
+        },
+      });
+      await expect(borrowService.returnBorrowRequest(borrowId, input, user as any, key))
+        .rejects.toMatchObject({ statusCode: 409 });
+      expect(prisma.$transaction).not.toHaveBeenCalled();
+    }
+  );
+
+  it.each([null, undefined, 500])(
+    'IDEM-12: underlying completed row status %s is authoritative over normalized cache',
+    async (statusCode) => {
+      mocks.precheck.mockResolvedValueOnce({
+        action: 'RETURN_CACHED', requestHash: proceed.requestHash,
+        statusCode: 200,
+        existingRecord: { status: 'COMPLETED', statusCode },
+        cachedResponse: {
+          returnNumber: 'RT-EXAMPLE', borrowRequest: { id: borrowId },
+        },
+      });
+      await expect(borrowService.returnBorrowRequest(borrowId, input, user as any, key))
+        .rejects.toMatchObject({ statusCode: 409 });
+      expect(prisma.$transaction).not.toHaveBeenCalled();
+    }
+  );
+
   it('IDEM-06: invalid completed cache is rejected rather than triggering a second return', async () => {
     mocks.precheck.mockResolvedValueOnce({
       action: 'RETURN_CACHED', requestHash: proceed.requestHash,
