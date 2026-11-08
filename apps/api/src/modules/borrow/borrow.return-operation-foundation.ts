@@ -89,8 +89,11 @@ export function canonicalReturnOperationPayload(input: unknown): ReturnOperation
       throw new AppError('ID dòng mượn không hợp lệ hoặc trùng lặp', 422);
     }
     seen.add(id.toLowerCase());
+    // Never coerce an untrusted condition into an enum. For instance,
+    // String(['GOOD']) === 'GOOD', but the original array is not a condition.
     if (!Number.isSafeInteger(value.returnedQuantity) || (value.returnedQuantity as number) <= 0 ||
-        !['GOOD', 'DAMAGED', 'LOST'].includes(String(value.condition))) {
+        typeof value.condition !== 'string' ||
+        !['GOOD', 'DAMAGED', 'LOST'].includes(value.condition)) {
       throw new AppError('Số lượng hoặc tình trạng hoàn trả không hợp lệ', 422);
     }
     const locationId = value.locationId;
@@ -143,9 +146,15 @@ export function assertOperationSnapshotConsistent(op: ReturnOperationStatusSnaps
 }
 
 /** No implicit cross-device retry/duplicate decision based only on item quantities. */
-export function nextOperationPolicy(state: ReturnOperationState): 'BLOCKED' | 'PHYSICAL_EVIDENCE_REVIEW' {
-  return state === 'PREPARED' || state === 'RECONCILIATION_REQUIRED'
-    ? 'BLOCKED' : 'PHYSICAL_EVIDENCE_REVIEW';
+export function nextOperationPolicy(state: unknown): 'BLOCKED' | 'PHYSICAL_EVIDENCE_REVIEW' {
+  if (state === 'PREPARED' || state === 'RECONCILIATION_REQUIRED') {
+    return 'BLOCKED';
+  }
+  if (state === 'COMPLETED' || state === 'CANCELLED') {
+    return 'PHYSICAL_EVIDENCE_REVIEW';
+  }
+  // Persisted state is untrusted at runtime, even if callers use a TS enum.
+  throw new AppError('Trạng thái operation không xác định, cần đối soát', 409);
 }
 
 /**

@@ -146,8 +146,11 @@ export function assertStage4CCommitPreconditions(
 export function assertNoPendingStage4COperation(
   states: readonly unknown[]
 ): void {
+  // String(state) permits boxed strings and custom coercion. Reject anything
+  // except primitive persisted enum strings before examining pending states.
   if (!Array.isArray(states) || states.some(state =>
-    !['PREPARED', 'RECONCILIATION_REQUIRED', 'COMPLETED', 'CANCELLED'].includes(String(state)))) {
+    typeof state !== 'string' ||
+    !['PREPARED', 'RECONCILIATION_REQUIRED', 'COMPLETED', 'CANCELLED'].includes(state))) {
     throw new AppError('Trạng thái operation không hợp lệ', 409);
   }
   if (states.includes('PREPARED') || states.includes('RECONCILIATION_REQUIRED')) {

@@ -68,6 +68,15 @@ describe('Phase 11D Stage 4C-2A — inert operation foundation', () => {
     ]) expect(() => canonicalReturnOperationPayload({items:[bad]})).toThrow();
     expect(() => canonicalReturnOperationPayload({items:[line], state:'COMPLETED'})).toThrow();
   });
+  it('OP-F09B: non-string condition values cannot impersonate GOOD/DAMAGED/LOST', () => {
+    for (const condition of [['GOOD'], ['DAMAGED'], new String('GOOD'), { toString: () => 'LOST' }]) {
+      expect(() => canonicalReturnOperationPayload({
+        items: [{ ...line, condition }],
+      })).toThrow();
+    }
+    expect(canonicalReturnOperationPayload({ items: [{ ...line, condition: 'GOOD' }] }).items[0].condition)
+      .toBe('GOOD');
+  });
   it('OP-F10: PREPARED is a valid persisted intent, not a receipt', () => {
     expect(() => assertOperationSnapshotConsistent(op)).not.toThrow();
   });
@@ -100,6 +109,11 @@ describe('Phase 11D Stage 4C-2A — inert operation foundation', () => {
   it('OP-F15: unresolved operation blocks a new operation', () => {
     expect(nextOperationPolicy('PREPARED')).toBe('BLOCKED');
     expect(nextOperationPolicy('RECONCILIATION_REQUIRED')).toBe('BLOCKED');
+  });
+  it('OP-F15B: unknown runtime state cannot silently enter a terminal evidence-review path', () => {
+    for (const state of ['CORRUPTED', null, undefined, ['COMPLETED'], new String('CANCELLED')]) {
+      expect(() => nextOperationPolicy(state)).toThrow();
+    }
   });
   it('OP-F16: terminal operation still requires independent physical-evidence review', () => {
     expect(nextOperationPolicy('COMPLETED')).toBe('PHYSICAL_EVIDENCE_REVIEW');

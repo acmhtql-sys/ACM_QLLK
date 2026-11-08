@@ -163,6 +163,18 @@ describe('L2 Stage4C offline pre-COMMIT, quarantine and QC policy (zero I/O)', (
       .not.toThrow();
     expect(() => assertNoPendingStage4COperation(['CORRUPTED'])).toThrow();
   });
+  it('BIZ05-17B: coerced state objects cannot bypass the pending-operation guard', () => {
+    for (const candidate of [
+      new String('PREPARED'),
+      new String('COMPLETED'),
+      ['PREPARED'],
+      { toString: () => 'RECONCILIATION_REQUIRED' },
+      null, 0, false,
+    ]) {
+      expect(() => assertNoPendingStage4COperation([candidate])).toThrow();
+    }
+    expect(() => assertNoPendingStage4COperation(['COMPLETED', 'CANCELLED'])).not.toThrow();
+  });
   it('BIZ03-18: QC may release only committed independently verified GOOD', () => {
     expect(() => assertStage4CQcReleaseAllowed({
       role: 'LAB_MANAGER', condition: 'GOOD', committed: true,
