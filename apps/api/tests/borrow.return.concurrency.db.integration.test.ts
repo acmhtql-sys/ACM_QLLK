@@ -168,6 +168,134 @@ describe('D8 integration: same-source concurrency and cross-location rejection',
     }
   }, 20000);
 
+  it('CI-local DB: four real seeded roles, forged JWT role, IDOR and denied-write invariants', async () => {
+    assertSafeTestDatabaseUrl(process.env.DATABASE_URL);
+    const [{ db }] = await prisma.$queryRaw<Array<{ db: string }>>`SELECT current_database() AS db`;
+    assertRuntimeDatabaseIsTest(db);
+
+    const roleSources = [
+      { email: 'admin@acm.local', role: UserRole.ADMIN },
+      { email: 'manager@acm.local', role: UserRole.LAB_MANAGER },
+      { email: 'tech@acm.local', role: UserRole.TECHNICIAN },
+      { email: 'student@acm.local', role: UserRole.STUDENT },
+    ];
+    const loaded = await Promise.all(roleSources.map(({ email }) =>
+      prisma.user.findUnique({ where: { email } })
+    ));
+    for (const [index, user] of loaded.entries()) {
+      expect(user, roleSources[index].email).not.toBeNull();
+      expect(user?.role).toBe(roleSources[index].role);
+      expect(user?.isActive).toBe(true);
+      expect(user?.isLocked).toBe(false);
+    }
+    const [admin, manager, technician, student] = loaded.map(user => user!);
+    const tokenFor = (user: typeof admin, assertedRole: UserRole = user.role) =>
+      jwt.sign({
+        id: user.id,
+        email: user.email,
+        role: assertedRole,
+        fullName: user.fullName,
+        pwdTag: computePasswordTag(user.id, user.passwordHash),
+      }, env.JWT_SECRET, { expiresIn: '1h' });
+    const app = createApp();
+
+    // Current database role wins over any stale token claim.
+    for (const user of [admin, manager, technician, student]) {
+      const claimedRole = user.role === UserRole.LAB_MANAGER ? UserRole.STUDENT : user.role;
+      const res = await httpRequest(app)
+        .get(`/api/v1/borrow-requests/${created.requestId}`)
+        .set('Authorization', `Bearer ${tokenFor(user, claimedRole)}`);
+      expect(res.status, user.email).toBe(200);
+      expect(res.body.data.id).toBe(created.requestId);
+    }
+
+    const checkKey = `${idempotencyKeyPrefix}ROLE`;
+    for (const user of [admin, manager, technician]) {
+      const res = await httpRequest(app)
+        .get(`/api/v1/borrow-requests/${created.requestId}/return-status/${checkKey}`)
+        .set('Authorization', `Bearer ${tokenFor(user, UserRole.STUDENT)}`);
+      expect(res.status, user.email).toBe(200);
+      expect(res.body.data).toMatchObject({
+        state: 'NOT_FOUND',
+        requiresReconciliation: true,
+      });
+    }
+
+    // Forged ADMIN role in a valid STUDENT token cannot expand permissions.
+    const forgedStudentToken = tokenFor(student, UserRole.ADMIN);
+    const deniedStatus = await httpRequest(app)
+      .get(`/api/v1/borrow-requests/${created.requestId}/return-status/${checkKey}`)
+      .set('Authorization', `Bearer ${forgedStudentToken}`);
+    expect(deniedStatus.status).toBe(403);
+    const deniedWrite = await httpRequest(app)
+      .post(`/api/v1/borrow-requests/${created.requestId}/return`)
+      .set('Authorization', `Bearer ${forgedStudentToken}`)
+      .set('Idempotency-Key', `${idempotencyKeyPrefix}STUDENT`)
+      .send({ items: [{ borrowDetailId: created.detailId, returnedQuantity: 1, condition: AssetCondition.GOOD }] });
+    expect(deniedWrite.status).toBe(403);
+
+    // Separate synthetic request owned by ADMIN demonstrates STUDENT IDOR.
+    const foreign = await prisma.borrowRequest.create({
+      data: {
+        requestNumber: `BR-ACL-${suffix}`,
+        borrowerId: admin.id,
+        status: BorrowStatus.PENDING,
+        purpose: 'CI-local role/IDOR synthetic fixture',
+        expectedBorrowDate: new Date('2026-11-01T00:00:00Z'),
+        expectedReturnDate: new Date('2026-11-15T00:00:00Z'),
+      },
+    });
+    try {
+      const forbidden = await httpRequest(app)
+        .get(`/api/v1/borrow-requests/${foreign.id}`)
+        .set('Authorization', `Bearer ${forgedStudentToken}`);
+      expect(forbidden.status).toBe(403);
+      const allowed = await httpRequest(app)
+        .get(`/api/v1/borrow-requests/${foreign.id}`)
+        .set('Authorization', `Bearer ${tokenFor(admin)}`);
+      expect(allowed.status).toBe(200);
+      const anonymous = await httpRequest(app).get(`/api/v1/borrow-requests/${foreign.id}`);
+      expect(anonymous.status).toBe(401);
+
+      const staleTag = jwt.sign({
+        id: admin.id, email: admin.email, role: UserRole.ADMIN,
+        fullName: admin.fullName, pwdTag: 'deliberately-invalid-pwd-tag',
+      }, env.JWT_SECRET, { expiresIn: '1h' });
+      const stale = await httpRequest(app)
+        .get(`/api/v1/borrow-requests/${foreign.id}`)
+        .set('Authorization', `Bearer ${staleTag}`);
+      expect(stale.status).toBe(401);
+
+      const expired = jwt.sign({
+        id: admin.id, email: admin.email, role: UserRole.ADMIN,
+        fullName: admin.fullName,
+        pwdTag: computePasswordTag(admin.id, admin.passwordHash),
+      }, env.JWT_SECRET, { expiresIn: -1 });
+      const outOfTime = await httpRequest(app)
+        .get(`/api/v1/borrow-requests/${foreign.id}`)
+        .set('Authorization', `Bearer ${expired}`);
+      expect(outOfTime.status).toBe(401);
+    } finally {
+      await prisma.borrowRequest.delete({ where: { id: foreign.id } });
+    }
+
+    // Forbidden mutation must not post stock, receipt or idempotency claim.
+    const [receipts, claims, detail, balance] = await Promise.all([
+      prisma.returnTransaction.count({ where: { borrowRequestId: created.requestId } }),
+      prisma.idempotencyRecord.count({ where: { key: `${idempotencyKeyPrefix}STUDENT` } }),
+      prisma.borrowDetail.findUnique({ where: { id: created.detailId } }),
+      prisma.stockBalance.findUnique({
+        where: { itemId_locationId: {
+          itemId: created.itemId, locationId: created.sourceLocationId,
+        } },
+      }),
+    ]);
+    expect(receipts).toBe(0);
+    expect(claims).toBe(0);
+    expect(detail?.returnedQuantity).toBe(0);
+    expect(balance).toMatchObject({ onHand: 6, borrowed: 4 });
+  }, 30000);
+
   it('real row lock serializes same-source returns and denies A-to-B writes', async () => {
     const input = {
       items: [{
