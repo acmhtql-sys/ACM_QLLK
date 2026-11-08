@@ -56,7 +56,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
         id="acm-mobile-sidebar"
         aria-label="Điều hướng hệ thống"
         className={`fixed inset-y-0 left-0 z-50 flex w-64 flex-col bg-slate-900 text-slate-300 transition-transform duration-200 ease-in-out lg:static lg:translate-x-0 ${
-          isOpen ? 'translate-x-0' : '-translate-x-full'
+          isOpen ? 'translate-x-0 visible' : '-translate-x-full invisible lg:visible'
         }`}
       >
         {/* Logo Section */}
