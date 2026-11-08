@@ -245,6 +245,35 @@ describe('ACM Phase 4 – Borrow & Return Management Test Suite', () => {
     });
   });
 
+  describe('RC5 return service: fail closed before any transaction (direct callers)', () => {
+    const validRow = () => ({
+      borrowDetailId, returnedQuantity: 1, condition: AssetCondition.GOOD,
+    });
+    const invalidInputs: unknown[] = [
+      { items: [] },
+      { items: null },
+      { items: [null] },
+      { items: [{ ...validRow(), returnedQuantity: 0 }] },
+      { items: [{ ...validRow(), returnedQuantity: -1 }] },
+      { items: [{ ...validRow(), returnedQuantity: 1.5 }] },
+      { items: [{ ...validRow(), returnedQuantity: Number.NaN }] },
+      { items: [{ ...validRow(), returnedQuantity: Number.POSITIVE_INFINITY }] },
+      { items: [{ ...validRow(), returnedQuantity: Number.MAX_SAFE_INTEGER + 1 }] },
+      { items: [{ ...validRow(), condition: 'UNKNOWN' }] },
+      { items: [{ ...validRow(), condition: ['GOOD'] }] },
+      { items: [{ ...validRow(), condition: null }] },
+      { items: [{ ...validRow(), borrowDetailId: '' }] },
+      { items: [{ ...validRow(), locationId: 0 }] },
+    ];
+
+    it.each(invalidInputs)('RC5-SVC-01: rejects malformed direct-return input without writes: %j', async (input) => {
+      await expect(borrowService.returnBorrowRequest(
+        borrowRequestId, input as any, technicianUser,
+      )).rejects.toMatchObject({ statusCode: 422 });
+      expect(prisma.$transaction).not.toHaveBeenCalled();
+    });
+  });
+
   describe('1. Normal Lifecycle (Create -> Approve -> Handover -> Partial Return -> Full Return)', () => {
     it('TC-BR-01: Creates a borrow request with available stock validation', async () => {
       vi.mocked(prisma.user.findUnique).mockResolvedValue({

@@ -793,6 +793,30 @@ export class BorrowService {
       );
     }
 
+    // The HTTP router validates Zod input, but the public service can also be
+    // called directly. Never let malformed quantities or an unknown condition
+    // commit a BorrowDetail/ReturnDetail without the matching stock posting.
+    // Check BEFORE the idempotency precheck or opening any DB transaction.
+    if (!input || !Array.isArray(input.items) || input.items.length === 0) {
+      throw new AppError('Phải có ít nhất một dòng hoàn trả hợp lệ', 422);
+    }
+    for (const returnItem of input.items) {
+      if (!returnItem ||
+          typeof returnItem.borrowDetailId !== 'string' ||
+          returnItem.borrowDetailId.length === 0 ||
+          !Number.isSafeInteger(returnItem.returnedQuantity) ||
+          returnItem.returnedQuantity <= 0 ||
+          (returnItem.condition !== undefined &&
+           returnItem.condition !== AssetCondition.GOOD &&
+           returnItem.condition !== AssetCondition.DAMAGED &&
+           returnItem.condition !== AssetCondition.LOST) ||
+          (returnItem.locationId != null &&
+           (typeof returnItem.locationId !== 'string' ||
+            returnItem.locationId.length === 0))) {
+        throw new AppError('Dữ liệu dòng hoàn trả không hợp lệ', 422);
+      }
+    }
+
     // Stage 1: optional header, to preserve compatibility with existing callers.
     const endpoint = '/api/v1/borrow-requests/' + id + '/return';
     const precheck = idempotencyKey
