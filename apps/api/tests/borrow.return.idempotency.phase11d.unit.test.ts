@@ -10,7 +10,9 @@ const mocks = vi.hoisted(() => ({
   conflict: vi.fn(),
   sanitize: vi.fn(),
   expiration: vi.fn(),
+  warn: vi.fn(),
 }));
+vi.mock('../src/config/logger', () => ({ logger: { warn: mocks.warn } }));
 
 vi.mock('../src/modules/inventory/idempotency.service', () => ({
   idempotencyService: {
@@ -36,6 +38,7 @@ vi.mock('../src/config/database', () => {
   return {
     prisma: {
       $transaction: vi.fn(async (cb: any) => cb(tx)),
+      returnTransaction: { findFirst: vi.fn() },
       __mockTx: tx,
     },
   };
@@ -61,6 +64,7 @@ const baseBorrow = {
   requestNumber: 'BR-20261023-0001',
   borrowerId: '66666666-6666-6666-6666-666666666666',
   status: BorrowStatus.HANDED_OVER,
+  purpose: 'synthetic RC5 idempotency fixture',
   expectedBorrowDate: new Date('2026-10-22T00:00:00Z'),
   expectedReturnDate: new Date('2026-10-29T00:00:00Z'),
   details: [{
@@ -76,6 +80,9 @@ const baseBorrow = {
 
 function txMock(): any {
   return (prisma as any).__mockTx;
+}
+function receiptLookup(): any {
+  return (prisma as any).returnTransaction.findFirst;
 }
 
 function configureHappyPath() {
@@ -107,6 +114,7 @@ describe('Phase 11D — Borrow return idempotency (mock, zero DB writes)', () =>
     const tx = txMock();
     (prisma.$transaction as any).mockImplementation(async (cb: any) => cb(tx));
     configureHappyPath();
+    receiptLookup().mockResolvedValue({ id: 'confirmed-return-transaction' });
     mocks.precheck.mockResolvedValue(proceed);
     mocks.conflict.mockImplementation((error: any) => error?.code === 'P2002' &&
       Array.isArray(error?.meta?.target) && error.meta.target.includes('key'));
@@ -147,7 +155,8 @@ describe('Phase 11D — Borrow return idempotency (mock, zero DB writes)', () =>
     const first = await borrowService.returnBorrowRequest(borrowId, input, user as any, key);
     mocks.precheck.mockResolvedValueOnce({
       action: 'RETURN_CACHED', requestHash: proceed.requestHash,
-      statusCode: 200, cachedResponse: first,
+      statusCode: 200, existingRecord: { status: 'COMPLETED', statusCode: 200 },
+      cachedResponse: first,
     });
     const second = await borrowService.returnBorrowRequest(borrowId, input, user as any, key);
     expect(second).toEqual(first);
@@ -236,7 +245,8 @@ describe('Phase 11D — Borrow return idempotency (mock, zero DB writes)', () =>
     for (const cachedResponse of bad) {
       mocks.precheck.mockResolvedValueOnce({
         action: 'RETURN_CACHED', requestHash: proceed.requestHash,
-        statusCode: 200, cachedResponse,
+        statusCode: 200, existingRecord: { status: 'COMPLETED', statusCode: 200 },
+        cachedResponse,
       });
       await expect(borrowService.returnBorrowRequest(borrowId, input, user as any, key))
         .rejects.toMatchObject({ statusCode: 409 });
@@ -278,6 +288,84 @@ describe('Phase 11D — Borrow return idempotency (mock, zero DB writes)', () =>
       expect(prisma.$transaction).not.toHaveBeenCalled();
     }
   );
+
+  it('IDEM-13: absent raw COMPLETED row fails closed, even with a valid-shaped cache', async () => {
+    const first = await borrowService.returnBorrowRequest(borrowId, input, user as any, key);
+    vi.clearAllMocks();
+    mocks.precheck.mockResolvedValueOnce({
+      action: 'RETURN_CACHED', statusCode: 200,
+      requestHash: proceed.requestHash, cachedResponse: first,
+    });
+    await expect(borrowService.returnBorrowRequest(borrowId, input, user as any, key))
+      .rejects.toMatchObject({ statusCode: 409 });
+    expect(receiptLookup()).not.toHaveBeenCalled();
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+    expect(mocks.warn).toHaveBeenCalledOnce();
+    const signal = mocks.warn.mock.calls[0];
+    expect(signal[0]).toBe('RC5_RETURN_CACHE_RECONCILIATION_REQUIRED');
+    expect(signal[1]).toMatchObject({
+      actorId: user.id, borrowRequestId: borrowId,
+      reason: 'invalid_completed_record',
+      keySha256: expect.stringMatching(/^[0-9a-f]{64}$/),
+    });
+    expect(JSON.stringify(signal)).not.toContain(key);
+    expect(JSON.stringify(signal)).not.toContain(input.notes);
+  });
+
+  it('IDEM-14: a well-shaped cache cannot invent a returnNumber without an actual receipt', async () => {
+    const first = await borrowService.returnBorrowRequest(borrowId, input, user as any, key);
+    vi.clearAllMocks();
+    receiptLookup().mockResolvedValueOnce(null);
+    mocks.precheck.mockResolvedValueOnce({
+      action: 'RETURN_CACHED', statusCode: 200,
+      requestHash: proceed.requestHash,
+      existingRecord: { status: 'COMPLETED', statusCode: 200 },
+      cachedResponse: { ...first, returnNumber: 'RT-NONEXISTENT' },
+    });
+    await expect(borrowService.returnBorrowRequest(borrowId, input, user as any, key))
+      .rejects.toMatchObject({ statusCode: 409 });
+    expect(receiptLookup()).toHaveBeenCalledWith({
+      where: { borrowRequestId: borrowId, returnNumber: 'RT-NONEXISTENT' },
+      select: { id: true },
+    });
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+    expect(mocks.warn).toHaveBeenCalledWith(
+      'RC5_RETURN_CACHE_RECONCILIATION_REQUIRED',
+      expect.objectContaining({ reason: 'return_receipt_not_found' })
+    );
+  });
+
+  it('IDEM-15: a cache missing required borrow DTO fields is rejected without a read', async () => {
+    mocks.precheck.mockResolvedValueOnce({
+      action: 'RETURN_CACHED', statusCode: 200,
+      requestHash: proceed.requestHash,
+      existingRecord: { status: 'COMPLETED', statusCode: 200 },
+      cachedResponse: {
+        returnNumber: 'RT-FAKE',
+        borrowRequest: { id: borrowId, status: BorrowStatus.RETURNED },
+      },
+    });
+    await expect(borrowService.returnBorrowRequest(borrowId, input, user as any, key))
+      .rejects.toMatchObject({ statusCode: 409 });
+    expect(receiptLookup()).not.toHaveBeenCalled();
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  it('IDEM-16: verified replay returns only the validated outer response fields', async () => {
+    const first = await borrowService.returnBorrowRequest(borrowId, input, user as any, key);
+    vi.clearAllMocks();
+    receiptLookup().mockResolvedValueOnce({ id: 'confirmed-return-transaction' });
+    mocks.precheck.mockResolvedValueOnce({
+      action: 'RETURN_CACHED', statusCode: 200,
+      requestHash: proceed.requestHash,
+      existingRecord: { status: 'COMPLETED', statusCode: 200 },
+      cachedResponse: { ...first, topLevelInjection: 'unexpected' },
+    });
+    const replay = await borrowService.returnBorrowRequest(borrowId, input, user as any, key);
+    expect(replay).toEqual(first);
+    expect(Object.keys(replay).sort()).toEqual(['borrowRequest', 'returnNumber']);
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
 
   it('IDEM-06: invalid completed cache is rejected rather than triggering a second return', async () => {
     mocks.precheck.mockResolvedValueOnce({

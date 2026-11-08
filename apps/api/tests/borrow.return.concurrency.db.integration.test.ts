@@ -382,13 +382,25 @@ describe('D8 integration: same-source concurrency and cross-location rejection',
     }] };
     const endpoint = `/api/v1/borrow-requests/${created.requestId}/return`;
     const hash = idempotencyService.generateFingerprint(operator.id, endpoint, input);
+    const cacheBorrow = {
+      id: created.requestId,
+      requestNumber,
+      borrowerId: operator.id,
+      status: BorrowStatus.PARTIALLY_RETURNED,
+      purpose: 'forged cache evidence, CI only',
+      itemCount: 1,
+      details: [{
+        id: created.detailId, itemId: created.itemId, quantity: 4,
+        returnedQuantity: 1,
+      }],
+    };
     const examples = [
       {
         key: `${idempotencyKeyPrefix}BADID`,
         statusCode: 200,
         responseBody: {
           returnNumber: 'RT-CORRUPT-1',
-          borrowRequest: { id: created.destinationLocationId },
+          borrowRequest: { ...cacheBorrow, id: created.destinationLocationId },
         },
       },
       {
@@ -396,7 +408,17 @@ describe('D8 integration: same-source concurrency and cross-location rejection',
         statusCode: 500,
         responseBody: {
           returnNumber: 'RT-CORRUPT-2',
-          borrowRequest: { id: created.requestId },
+          borrowRequest: cacheBorrow,
+        },
+      },
+      {
+        // The body is structurally valid and belongs to this borrow, but the
+        // ReturnTransaction never existed: the DB must be authoritative.
+        key: `${idempotencyKeyPrefix}FAKERECEIPT`,
+        statusCode: 200,
+        responseBody: {
+          returnNumber: 'RT-CORRUPT-3',
+          borrowRequest: cacheBorrow,
         },
       },
     ];
@@ -428,7 +450,7 @@ describe('D8 integration: same-source concurrency and cross-location rejection',
         state: 'NEEDS_RECONCILIATION', requiresReconciliation: true,
       });
     }
-    const [receipts, movements, detail, balance] = await Promise.all([
+    const [receipts, movements, detail, balance, borrow, audits, persisted] = await Promise.all([
       prisma.returnTransaction.count({ where: { borrowRequestId: created.requestId } }),
       prisma.stockMovement.count({ where: { itemId: created.itemId, referenceType: 'RETURN' } }),
       prisma.borrowDetail.findUnique({ where: { id: created.detailId } }),
@@ -437,11 +459,30 @@ describe('D8 integration: same-source concurrency and cross-location rejection',
           itemId: created.itemId, locationId: created.sourceLocationId,
         } },
       }),
+      prisma.borrowRequest.findUnique({ where: { id: created.requestId } }),
+      prisma.auditLog.count({
+        where: { action: 'RETURN', entity: 'BorrowRequest', entityId: created.requestId },
+      }),
+      prisma.idempotencyRecord.findMany({
+        where: { key: { in: examples.map(e => e.key) } },
+        select: { key: true, status: true, statusCode: true, responseBody: true },
+      }),
     ]);
     expect(receipts).toBe(0);
     expect(movements).toBe(0);
+    expect(audits).toBe(0);
+    expect(borrow?.status).toBe(BorrowStatus.HANDED_OVER);
     expect(detail?.returnedQuantity).toBe(0);
-    expect(balance).toMatchObject({ onHand: 6, borrowed: 4 });
+    expect(balance).toMatchObject({
+      onHand: 6, borrowed: 4, quarantined: 0, reserved: 0,
+    });
+    expect(persisted).toHaveLength(examples.length);
+    for (const item of examples) {
+      expect(persisted).toContainEqual({
+        key: item.key, status: 'COMPLETED',
+        statusCode: item.statusCode, responseBody: item.responseBody,
+      });
+    }
   }, 30000);
 
   it('real row lock serializes same-source returns and denies A-to-B writes', async () => {

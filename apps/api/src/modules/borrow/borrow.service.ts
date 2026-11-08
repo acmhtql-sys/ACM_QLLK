@@ -1,6 +1,11 @@
 import crypto from 'crypto';
 import { Prisma } from '@prisma/client';
 import { idempotencyService } from '../inventory/idempotency.service';
+import { logger } from '../../config/logger';
+import {
+  parseCachedReturnEnvelope,
+  hasAuthoritativeReturnReceipt,
+} from './borrow.return-cache-integrity';
 import { prisma } from '../../config/database';
 import { AppError } from '../../shared/AppError';
 import { AuthenticatedUser } from '../../middleware/auth';
@@ -826,25 +831,30 @@ export class BorrowService {
       : null;
 
     if (precheck?.action === 'RETURN_CACHED') {
-      const cached = precheck.cachedResponse;
-      // A status marked COMPLETED is not proof that its JSON body belongs to
-      // this borrow. A corrupt/misassociated cached receipt must NEVER be
-      // returned as a successful physical return or silently trigger a retry.
-      // Check the underlying row too: generic idempotency currently falls back
-      // from an absent statusCode to 200 for other (non-physical) endpoints.
-      const rawStatus = precheck.existingRecord?.statusCode;
-      if (
-        precheck.statusCode !== 200 ||
-        (precheck.existingRecord && rawStatus !== 200) ||
-        !cached || typeof cached !== 'object' || Array.isArray(cached) ||
-        !cached.borrowRequest || typeof cached.borrowRequest !== 'object' ||
-        Array.isArray(cached.borrowRequest) ||
-        cached.borrowRequest.id !== id ||
-        typeof cached.returnNumber !== 'string' || !cached.returnNumber.trim()
-      ) {
+      // Fail closed when the raw row is absent, even if the generic precheck
+      // fabricates HTTP 200 from a null/zero statusCode for other endpoints.
+      const cached = parseCachedReturnEnvelope(precheck.cachedResponse, id);
+      const recordValid = precheck.statusCode === 200 &&
+        precheck.existingRecord?.statusCode === 200 &&
+        precheck.existingRecord?.status === 'COMPLETED';
+      const keyHash = crypto.createHash('sha256').update(idempotencyKey!).digest('hex');
+      const reportCorruptCache = (reason: string): never => {
+        // Structured, metadata-only integrity signal. Never log key, payload,
+        // cached body or user credentials. This is NOT a durable DB audit row.
+        logger.warn('RC5_RETURN_CACHE_RECONCILIATION_REQUIRED', {
+          reason, actorId: currentUser.id, borrowRequestId: id, keySha256: keyHash,
+        });
         throw new AppError('Kết quả giao dịch hoàn trả đã lưu không hợp lệ; cần đối soát', 409);
+      };
+      if (!recordValid) return reportCorruptCache('invalid_completed_record');
+      if (!cached) return reportCorruptCache('invalid_cached_response');
+      // Cache shape alone cannot authenticate a receipt number. Prove that
+      // the exact return number belongs to this borrow in PostgreSQL.
+      // This is read-only; no second return or transaction may start.
+      if (!await hasAuthoritativeReturnReceipt(id, cached.returnNumber)) {
+        return reportCorruptCache('return_receipt_not_found');
       }
-      return cached as { borrowRequest: BorrowRequestResponse; returnNumber: string };
+      return cached;
     }
 
     // A stale PENDING or FAILED idempotency record is not evidence that an

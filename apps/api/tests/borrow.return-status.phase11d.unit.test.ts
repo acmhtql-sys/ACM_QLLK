@@ -3,9 +3,13 @@ import { getBorrowReturnStatus } from '../src/modules/borrow/borrow.return-statu
 import { prisma } from '../src/config/database';
 import { borrowService } from '../src/modules/borrow/borrow.service';
 import { AppError } from '../src/shared/AppError';
+import { BorrowStatus } from '@acm/shared';
 
 vi.mock('../src/config/database', () => ({
-  prisma: { idempotencyRecord: { findUnique: vi.fn() } },
+  prisma: {
+    idempotencyRecord: { findUnique: vi.fn() },
+    returnTransaction: { findFirst: vi.fn() },
+  },
 }));
 vi.mock('../src/modules/borrow/borrow.service', () => ({
   borrowService: { getBorrowRequestById: vi.fn() },
@@ -20,16 +24,33 @@ const user = {
 };
 const record = (overrides: Record<string, unknown> = {}) => ({
   userId: user.id, endpoint: route, status: 'COMPLETED', statusCode: 200,
-  responseBody: { returnNumber: 'RT-TEST-0001', borrowRequest: { id: borrowId } },
+  responseBody: {
+    returnNumber: 'RT-TEST-0001',
+    borrowRequest: {
+      id: borrowId,
+      requestNumber: 'BR-TEST-0001',
+      borrowerId: '99999999-9999-4999-8999-999999999999',
+      status: BorrowStatus.RETURNED,
+      purpose: 'synthetic status test',
+      itemCount: 1,
+      details: [{
+        id: '33333333-3333-4333-8333-333333333333',
+        itemId: '44444444-4444-4444-8444-444444444444',
+        quantity: 1, returnedQuantity: 1,
+      }],
+    },
+  },
   ...overrides,
 });
 const lookup = () => (prisma.idempotencyRecord.findUnique as any);
+const receiptLookup = () => (prisma.returnTransaction.findFirst as any);
 const borrowLookup = () => (borrowService.getBorrowRequestById as any);
 
 beforeEach(() => {
   vi.resetAllMocks();
   borrowLookup().mockResolvedValue({ id: borrowId });
   lookup().mockResolvedValue(null);
+  receiptLookup().mockResolvedValue({ id: 'real-return-transaction' });
 });
 
 describe('Phase 11D — read-only lost-session return-key status', () => {
@@ -42,6 +63,10 @@ describe('Phase 11D — read-only lost-session return-key status', () => {
     expect(lookup()).toHaveBeenCalledWith({
       where: { key },
       select: { userId: true, endpoint: true, status: true, statusCode: true, responseBody: true },
+    });
+    expect(receiptLookup()).toHaveBeenCalledWith({
+      where: { borrowRequestId: borrowId, returnNumber: 'RT-TEST-0001' },
+      select: { id: true },
     });
   });
 
@@ -96,6 +121,23 @@ describe('Phase 11D — read-only lost-session return-key status', () => {
     await expect(getBorrowReturnStatus(borrowId, key, user as any)).rejects
       .toMatchObject({ statusCode: 403 });
     expect(lookup()).not.toHaveBeenCalled();
+  });
+
+  it('STATUS-10: well-shaped but fabricated cached number requires reconciliation', async () => {
+    lookup().mockResolvedValue(record());
+    receiptLookup().mockResolvedValueOnce(null);
+    expect(await getBorrowReturnStatus(borrowId, key, user as any)).toEqual({
+      state: 'NEEDS_RECONCILIATION', requiresReconciliation: true,
+    });
+    expect(receiptLookup()).toHaveBeenCalledOnce();
+  });
+
+  it('STATUS-11: cannot report COMPLETED when receipt lookup is absent', async () => {
+    lookup().mockResolvedValue(record());
+    receiptLookup().mockResolvedValueOnce(undefined);
+    expect(await getBorrowReturnStatus(borrowId, key, user as any)).toEqual({
+      state: 'NEEDS_RECONCILIATION', requiresReconciliation: true,
+    });
   });
 
   it('STATUS-09: incomplete or non-200 completion remains unresolved', async () => {

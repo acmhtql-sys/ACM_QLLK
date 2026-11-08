@@ -4,6 +4,10 @@ import type { AuthenticatedUser } from '../../middleware/auth';
 import { AppError } from '../../shared/AppError';
 import { idempotencyService } from '../inventory/idempotency.service';
 import { borrowService } from './borrow.service';
+import {
+  parseCachedReturnEnvelope,
+  hasAuthoritativeReturnReceipt,
+} from './borrow.return-cache-integrity';
 
 export type BorrowReturnStatus =
   | { state: 'COMPLETED'; requiresReconciliation: false; receipt: { returnNumber: string; borrowRequestId: string } }
@@ -39,20 +43,14 @@ export async function getBorrowReturnStatus(
   if (record.status !== 'COMPLETED' || record.statusCode !== 200) {
     return { state: 'NEEDS_RECONCILIATION', requiresReconciliation: true };
   }
-  const response = record.responseBody;
-  if (response === null || typeof response !== 'object' || Array.isArray(response)) {
-    return { state: 'NEEDS_RECONCILIATION', requiresReconciliation: true };
-  }
-  const data = response as Record<string, unknown>;
-  const borrow = data.borrowRequest;
-  const returnedBorrowId = borrow && typeof borrow === 'object' && !Array.isArray(borrow)
-    ? (borrow as Record<string, unknown>).id : undefined;
-  if (typeof data.returnNumber !== 'string' || !data.returnNumber.trim() ||
-      returnedBorrowId !== borrowId) {
+  const cached = parseCachedReturnEnvelope(record.responseBody, borrowId);
+  if (!cached || !await hasAuthoritativeReturnReceipt(borrowId, cached.returnNumber)) {
+    // Shape and an idempotency COMPLETED flag are insufficient to prove a
+    // physical receipt. Never report a valid, but nonexistent, cached number.
     return { state: 'NEEDS_RECONCILIATION', requiresReconciliation: true };
   }
   return {
     state: 'COMPLETED', requiresReconciliation: false,
-    receipt: { returnNumber: data.returnNumber, borrowRequestId: borrowId },
+    receipt: { returnNumber: cached.returnNumber, borrowRequestId: borrowId },
   };
 }
