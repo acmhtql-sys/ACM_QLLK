@@ -14,6 +14,7 @@ import { UserRole } from '@prisma/client';
 import { authorizeRoles } from '../../middleware/rbac';
 import { authenticate } from '../../middleware/auth';
 import { AppError } from '../../shared/AppError';
+import { ItemImageAuditSink, ItemImageAuditAction } from './image-storage.audit.contract';
 import {
   ImageStorageValidationError,
   ItemImageStorageProvider,
@@ -57,6 +58,8 @@ export interface ItemImageReviewDependencies {
   storage: ItemImageStorageProvider;
   /** MUST resolve this from a trusted backend/DB source, never browser input. */
   isActiveItem: (itemId: string) => Promise<boolean>;
+  /** Required, fail-closed. Actual durable implementation still needs approval. */
+  audit: ItemImageAuditSink;
 }
 
 const localParserError: ErrorRequestHandler = (error, _req, res, next) => {
@@ -82,14 +85,32 @@ const localParserError: ErrorRequestHandler = (error, _req, res, next) => {
  * Even on localhost, this must remain a test-only review surface.
  */
 export function createLocalItemImageReviewRouter(
-  { storage, isActiveItem }: ItemImageReviewDependencies
+  { storage, isActiveItem, audit }: ItemImageReviewDependencies
 ): Router {
+  if (!audit || typeof audit.record !== 'function') {
+    throw new Error('LOCAL_IMAGE_AUDIT_SINK_REQUIRED');
+  }
   const router = Router();
   router.use(requireLocalReviewMode);
   // Always authenticate with ACM's real JWT + live user status/role; any
   // upstream req.user alone must never authorize a local-image operation.
   router.use(authenticate);
   router.use(authorizeRoles(UserRole.ADMIN, UserRole.LAB_MANAGER));
+
+  const auditImage = async (
+    action: ItemImageAuditAction,
+    actorId: string,
+    itemId: string,
+    imageId: string,
+    sha256: string,
+    byteLength: number
+  ): Promise<void> => {
+    // No raw file bytes, filename, authorization header or client role in logs.
+    await audit.record({
+      action, actorId, itemId, imageId, sha256, byteLength,
+      recordedAt: new Date().toISOString(),
+    });
+  };
 
   const verifyItem = async (itemId: string): Promise<void> => {
     if (!(await isActiveItem(itemId))) {
@@ -128,6 +149,14 @@ export function createLocalItemImageReviewRouter(
           mimeType: contentType as AllowedImageMime,
           contents: req.body,
         });
+        try {
+          await auditImage('IMAGE_UPLOAD', actorId, itemId, saved.id, saved.sha256, saved.byteLength);
+        } catch (_auditError) {
+          // Compensating deletion is best effort, not a database transaction.
+          // Never acknowledge an unaudited upload even if cleanup also fails.
+          await storage.deleteForItem(itemId, saved.id).catch(() => false);
+          throw new AppError('Không thể ghi nhận nhật ký tải hình ảnh', 503);
+        }
         res.setHeader('Cache-Control', 'private, no-store');
         res.status(201).json({ success: true, data: saved });
       } catch (error) {
@@ -146,6 +175,15 @@ export function createLocalItemImageReviewRouter(
       const record = await storage.readForItem(itemId, req.params.imageId);
       if (!record) {
         throw new AppError('Không tìm thấy hình ảnh của linh kiện', 404);
+      }
+      try {
+        await auditImage(
+          'IMAGE_READ', req.user!.id, itemId, record.metadata.id,
+          record.metadata.sha256, record.metadata.byteLength
+        );
+      } catch (_auditError) {
+        // Do not release image bytes if its read-access event was not recorded.
+        throw new AppError('Không thể ghi nhận nhật ký truy cập hình ảnh', 503);
       }
       res.setHeader('Cache-Control', 'private, no-store');
       res.setHeader('Content-Type', record.metadata.mimeType);

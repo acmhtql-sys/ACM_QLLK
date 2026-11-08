@@ -13,6 +13,7 @@ import { createApp } from '../src/app';
 import { AppError } from '../src/shared/AppError';
 import { createLocalItemImageReviewRouter } from '../src/modules/storage/image-storage.http-review';
 import { TestOnlyMemoryItemImageStorage } from '../src/modules/storage/image-storage.memory';
+import type { ItemImageAuditAction, ItemImageAuditEvent } from '../src/modules/storage/image-storage.audit.contract';
 
 const PNG = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10, 4, 5, 6]);
 const UNKNOWN = '44444444-4444-4444-8444-444444444444';
@@ -22,6 +23,8 @@ describe('L4 image review uses REAL ACM JWT and live user role (CI-local PG16)',
   const tokens: Record<string, string> = {};
   let store: TestOnlyMemoryItemImageStorage;
   let server: express.Express;
+  let auditEvents: ItemImageAuditEvent[];
+  let auditFailure: ItemImageAuditAction | null;
 
   beforeAll(async () => {
     const identity = await prisma.$queryRaw<Array<{ db: string }>>`SELECT current_database() AS db`;
@@ -52,6 +55,8 @@ describe('L4 image review uses REAL ACM JWT and live user role (CI-local PG16)',
   beforeEach(() => {
     // The memory provider cannot be constructed outside NODE_ENV=test.
     store = new TestOnlyMemoryItemImageStorage();
+    auditEvents = [];
+    auditFailure = null;
     vi.stubEnv('NODE_ENV', 'development');
     vi.stubEnv('ACM_DEPLOYMENT_PROFILE', 'local_dev');
     vi.stubEnv('ACM_LOCAL_IMAGE_STORAGE_ENABLED', 'true');
@@ -64,6 +69,10 @@ describe('L4 image review uses REAL ACM JWT and live user role (CI-local PG16)',
       isActiveItem: async (id) => Boolean((await prisma.item.findUnique({
         where: { id }, select: { isActive: true },
       }))?.isActive),
+      audit: { record: async (event) => {
+        if (auditFailure === event.action) throw new Error('SYNTHETIC_AUDIT_UNAVAILABLE');
+        auditEvents.push({ ...event });
+      } },
     }));
     server.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
       const status = err instanceof AppError ? err.statusCode : 500;
@@ -105,6 +114,9 @@ describe('L4 image review uses REAL ACM JWT and live user role (CI-local PG16)',
         .set('Authorization', 'Bearer ' + tokens[role]);
       expect(read.status).toBe(200);
       expect(read.body).toEqual(PNG);
+      expect(auditEvents.map(event => event.action)).toEqual(['IMAGE_UPLOAD', 'IMAGE_READ']);
+      expect(auditEvents[0].actorId).toBe(uploadResult.body.data.uploadedById);
+      expect(auditEvents[1].actorId).toBe(uploadResult.body.data.uploadedById);
     },
   );
 
@@ -123,4 +135,28 @@ describe('L4 image review uses REAL ACM JWT and live user role (CI-local PG16)',
     vi.stubEnv('ACM_DEPLOYMENT_PROFILE', 'cloud_staging');
     expect((await upload(server, itemId, tokens.ADMIN)).status).toBe(404);
   });
+  it('AUTH-07: audit unavailability after real-JWT upload returns 503 and removes synthetic image', async () => {
+    const save = vi.spyOn(store, 'save');
+    auditFailure = 'IMAGE_UPLOAD';
+    const denied = await upload(server, itemId, tokens.ADMIN);
+    expect(denied.status).toBe(503);
+    expect(save).toHaveBeenCalledTimes(1);
+    const saved = await save.mock.results[0].value;
+    expect(await store.readForItem(itemId, saved.id)).toBeNull();
+    expect(auditEvents).toEqual([]);
+  });
+
+  it('AUTH-08: audit unavailability prevents bytes from being returned to real LAB_MANAGER', async () => {
+    const posted = await upload(server, itemId, tokens.LAB_MANAGER);
+    expect(posted.status).toBe(201);
+    auditFailure = 'IMAGE_READ';
+    const denied = await request(server)
+      .get('/review-images/' + itemId + '/' + posted.body.data.id)
+      .set('Authorization', 'Bearer ' + tokens.LAB_MANAGER);
+    expect(denied.status).toBe(503);
+    expect(denied.body).not.toEqual(PNG);
+    expect(auditEvents).toHaveLength(1);
+    expect(auditEvents[0].action).toBe('IMAGE_UPLOAD');
+  });
+
 });

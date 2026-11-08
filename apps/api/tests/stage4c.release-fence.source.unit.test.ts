@@ -79,6 +79,19 @@ describe('Stage4C / RC5 release fence — source-only, zero database/network', (
     expect(parser).toBeGreaterThan(role);
   });
 
+  it('L4-09: unmounted image router requires audit sink and acknowledges only after audit', () => {
+    const src = source('../src/modules/storage/image-storage.http-review.ts');
+    expect(src).toContain('LOCAL_IMAGE_AUDIT_SINK_REQUIRED');
+    const uploadAudit = src.indexOf("await auditImage('IMAGE_UPLOAD'");
+    const writeSuccess = src.indexOf('res.status(201).json');
+    expect(uploadAudit).toBeGreaterThanOrEqual(0);
+    expect(writeSuccess).toBeGreaterThan(uploadAudit);
+    const readAudit = src.indexOf("'IMAGE_READ', req.user!.id");
+    const readSuccess = src.indexOf('res.status(200).end');
+    expect(readAudit).toBeGreaterThanOrEqual(0);
+    expect(readSuccess).toBeGreaterThan(readAudit);
+  });
+
   it('DBA-06: inert Stage4C helper cannot turn into an operational writer via flag alone', () => {
     expect(() => assertLegacyReturnWriteAllowed('false')).not.toThrow();
     expect(() => assertLegacyReturnWriteAllowed('true')).toThrow();
