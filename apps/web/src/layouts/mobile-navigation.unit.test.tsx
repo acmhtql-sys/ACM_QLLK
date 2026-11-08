@@ -42,6 +42,8 @@ describe('L1 mobile navigation - safe responsive Web candidate', () => {
     const html = render(<Sidebar isOpen={false} onClose={() => undefined} />);
     expect(html).toContain('aria-label="Đóng menu điều hướng"');
     expect(html).toContain('id="acm-mobile-sidebar"');
-    expect(html).toContain('-translate-x-full');
+    expect(html).toContain('-translate-x-full invisible lg:visible');
+    // Tailwind visibility:hidden removes offscreen mobile links from tab order.
+    // lg:visible preserves normal desktop navigation when the drawer is closed.
   });
 });
