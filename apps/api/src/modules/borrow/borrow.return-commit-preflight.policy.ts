@@ -30,6 +30,13 @@ const validTimestamp = (value: unknown): number | null => {
 
 export interface TrustedBorrowLine {
   borrowDetailId: string;
+  /**
+   * Authoritative BorrowDetail.itemId from the same locked source-of-truth.
+   * Legacy pure preflight callers may omit it, but the joined posting planner
+   * MUST reject absent/invalid itemId to avoid mutually consistent wrong-item
+   * allocation + stock-bucket snapshots.
+   */
+  itemId?: string;
   /** Borrowed quantity under an approved, locked source-of-truth. */
   originalQuantity: number;
   alreadyReturnedQuantity: number;

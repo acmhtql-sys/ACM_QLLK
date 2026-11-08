@@ -29,8 +29,8 @@ const trusted = (): TrustedStage4CCommitFacts => ({
     { borrowDetailId: DETAIL_B, returnedQuantity: 3, condition: 'DAMAGED', locationId: SOURCE },
   ] },
   borrowLines: [
-    { borrowDetailId: DETAIL_A, originalQuantity: 4, alreadyReturnedQuantity: 0, sourceLocationId: SOURCE },
-    { borrowDetailId: DETAIL_B, originalQuantity: 3, alreadyReturnedQuantity: 0, sourceLocationId: SOURCE },
+    { borrowDetailId: DETAIL_A, itemId: ITEM, originalQuantity: 4, alreadyReturnedQuantity: 0, sourceLocationId: SOURCE },
+    { borrowDetailId: DETAIL_B, itemId: ITEM, originalQuantity: 3, alreadyReturnedQuantity: 0, sourceLocationId: SOURCE },
   ],
 });
 
@@ -145,4 +145,38 @@ describe('Stage4C review-only joined posting plan — NO DB/HTTP/WRITER', () => 
     b[0].balance.borrowed = 4;
     expect(() => planJoinedStage4CPostingForReview(f, a, b)).toThrow();
   });
+  it('JOIN-11: a coherent wrong-item allocation and bucket cannot override BorrowDetail.itemId', () => {
+    const badAllocations = allocations().map(line => ({ ...line, itemId: OTHER }));
+    const badBuckets = buckets().map(bucket => ({ ...bucket, itemId: OTHER }));
+    // Before this guard, both altered snapshots agreed and were accepted.
+    expect(() => planJoinedStage4CPostingForReview(trusted(), badAllocations, badBuckets))
+      .toThrow(/Ánh xạ/);
+  });
+
+  it('JOIN-12: corrupted or missing authoritative BorrowDetail.itemId fails closed', () => {
+    for (const invalid of [undefined, null, 'bad', OTHER, [ITEM]]) {
+      const f = trusted();
+      f.borrowLines = f.borrowLines.map((line, index) =>
+        index === 0 ? { ...line, itemId: invalid as string } : line);
+      expect(() => planJoinedStage4CPostingForReview(f, allocations(), buckets()))
+        .toThrow(/Ánh xạ/);
+    }
+  });
+
+  it('JOIN-13: distinct stockBalance UUIDs cannot represent the same item and location', () => {
+    const b = buckets();
+    b.push({ ...b[0], stockBalanceId: OTHER });
+    expect(() => planJoinedStage4CPostingForReview(trusted(), allocations(), b))
+      .toThrow(/trùng lặp/);
+  });
+
+  it('JOIN-14: item UUID matching remains case-insensitive without mutating trusted facts', () => {
+    const f = trusted();
+    f.borrowLines = f.borrowLines.map(line => ({ ...line, itemId: ITEM.toUpperCase() }));
+    const a = allocations().map(line => ({ ...line, itemId: ITEM.toUpperCase() }));
+    expect(planJoinedStage4CPostingForReview(f, a, buckets()))
+      .toEqual(planJoinedStage4CPostingForReview(trusted(), allocations(), buckets()));
+    expect(f.borrowLines[0].itemId).toBe(ITEM.toUpperCase());
+  });
+
 });

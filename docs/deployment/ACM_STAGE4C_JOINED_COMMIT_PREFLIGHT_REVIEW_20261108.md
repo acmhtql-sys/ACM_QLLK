@@ -13,11 +13,19 @@ This patch exposes `planJoinedStage4CPostingForReview(trustedFacts, allocations,
 1. Original BIZ-01/02/03/04/05 COMMIT preflight **must succeed first**: PREPARED; distinct RECEIVER and VERIFY; authorization; evidence syntax; no LOST disguised as received; no cross-source return; no per-detail overreturn.
 2. Every proposed disposition has exactly one selected locked borrow allocation, identified by case-normalized UUID. Duplicate or unknown detail IDs fail closed.
 3. Allocation `originalQuantity`, `alreadyReturnedQuantity`, and source location agree with the source-of-truth borrow line; no client-selected stockBalanceId is trusted.
-4. Selected `stockBalanceId` maps to an immutable `itemId` and `locationId`; any mismatch, missing or duplicate stock bucket is denied.
+4. Selected `stockBalanceId` maps to immutable `itemId` and `locationId`; the allocation/bucket item must **also equal the independent BorrowDetail.itemId** read under the same future DB lock, not merely match each other. Missing authoritative itemId is rejected by the joined planner. Two different stock UUIDs claiming the same `(itemId, locationId)` are rejected.
 5. Every item/location shared by multiple return lines is planned from **one evolving stock balance**, so aggregate returns greater than `borrowed` are denied even where each line is individually valid.
 6. Initial receipt adjusts `borrowed -= qty; onHand += qty; quarantined += qty`, while `availableAfter == availableBefore`. Independent GOOD QC and per-receipt unique claim must be a separate transaction.
 7. Inputs are not mutated. IDs and output order are normalized deterministically; arithmetic overflow and malformed snapshots fail closed.
 8. Existing RC5 router/service and Stage4C hard-503 fence remain unchanged.
+
+## Additional fail-closed review correction — 2026-11-08
+
+A pair of internally consistent but wrong item identifiers on the allocation and stock bucket could previously bypass the join. The planner now also checks `TrustedBorrowLine.itemId` against both records and refuses the plan if the independently retrieved item ID is absent/invalid. This property stays optional for older, unconnected preflight tests; **joined COMMIT review requires it**.
+
+The same validation rejects multiple stock-balance records with different UUIDs but identical item+location, matching the current RC5 Prisma `@@unique([itemId, locationId])` contract. Regression cases JOIN-11..14 verify both failures and case-insensitive UUID normalization.
+
+The fix remains review-only: it does not authenticate the source of these objects or establish DB locks. No schema change or writer activation is implied.
 
 ## What is NOT proven
 

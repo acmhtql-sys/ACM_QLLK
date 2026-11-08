@@ -70,14 +70,19 @@ export function planJoinedStage4CPostingForReview(
     authoritativeLines.set(idOrReject(line.borrowDetailId), line);
   }
   const bucketById = new Map<string, ReviewLockedStockBucket>();
+  // Prisma StockBalance has UNIQUE(itemId, locationId). Detect a corrupt or
+  // internally inconsistent snapshot even when two different UUIDs are used.
+  const uniqueInventorySources = new Set<string>();
   for (const bucket of buckets) {
     if (!bucket) throw new AppError('Số dư kho nguồn không hợp lệ', 409);
     const id = idOrReject(bucket.stockBalanceId);
     const itemId = idOrReject(bucket.itemId);
     const locationId = idOrReject(bucket.locationId);
-    if (bucketById.has(id)) {
+    const inventorySource = itemId + ':' + locationId;
+    if (bucketById.has(id) || uniqueInventorySources.has(inventorySource)) {
       throw new AppError('Số dư kho nguồn trùng lặp', 409);
     }
+    uniqueInventorySources.add(inventorySource);
     bucketById.set(id, { ...bucket, itemId, locationId });
   }
 
@@ -90,7 +95,12 @@ export function planJoinedStage4CPostingForReview(
     const locationId = idOrReject(allocation.sourceLocationId);
     const sourceLine = authoritativeLines.get(detailId);
     const bucket = bucketById.get(stockBalanceId);
+    // A coherent but WRONG allocation+bucket itemId is still unsafe unless
+    // it matches the independent BorrowDetail.itemId snapshot.
+    const sourceItemId = sourceLine && typeof sourceLine.itemId === 'string' &&
+      UUID.test(sourceLine.itemId) ? sourceLine.itemId.toLowerCase() : null;
     if (allocationByDetail.has(detailId) || !sourceLine || !bucket ||
+        sourceItemId !== itemId ||
         idOrReject(sourceLine.sourceLocationId) !== locationId ||
         sourceLine.originalQuantity !== allocation.originalQuantity ||
         sourceLine.alreadyReturnedQuantity !== allocation.alreadyReturnedQuantity ||
