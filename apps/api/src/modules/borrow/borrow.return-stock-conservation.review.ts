@@ -133,3 +133,102 @@ export function planGoodQcRelease(
   }
   return { before: { ...balance }, after, availableBefore, availableAfter };
 }
+
+
+/**
+ * Proposed multi-line COMMIT preflight for balances shared by multiple borrow
+ * details. The approved future writer MUST lock every balance and source detail
+ * in a stable order in ONE DB transaction, re-read authoritative balances under
+ * those locks, and create an immutable once-only receipt/audit/stock posting.
+ *
+ * This function ONLY simulates arithmetic. IDs and buckets are expected to be
+ * drawn from that authoritative locked snapshot, never from the client.
+ */
+export interface ReviewBalanceBucket {
+  stockBalanceId: string;
+  balance: ReviewStockBalance;
+}
+
+export interface ReviewReturnAssignment {
+  stockBalanceId: string;
+  disposition: QuarantineOnlyDisposition;
+}
+
+export interface ReviewBatchAccountingPlan extends ReviewAccountingPlan {
+  stockBalanceId: string;
+  borrowDetailIds: readonly string[];
+}
+
+const reviewId = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+export function planQuarantineFirstBatchForReview(
+  buckets: readonly ReviewBalanceBucket[],
+  assignments: readonly ReviewReturnAssignment[]
+): readonly ReviewBatchAccountingPlan[] {
+  if (!Array.isArray(buckets) || buckets.length === 0 ||
+      !Array.isArray(assignments) || assignments.length === 0) {
+    throw new AppError('Thiếu dữ liệu kế toán hoàn trả theo lô', 409);
+  }
+  const byId = new Map<string, {
+    before: ReviewStockBalance;
+    after: ReviewStockBalance;
+    availableBefore: number;
+    detailIds: string[];
+  }>();
+  for (const bucket of buckets) {
+    if (!bucket || typeof bucket.stockBalanceId !== 'string' ||
+        !reviewId.test(bucket.stockBalanceId)) {
+      throw new AppError('Thiếu danh tính số dư tồn kho đáng tin cậy', 409);
+    }
+    const id = bucket.stockBalanceId.toLowerCase();
+    if (byId.has(id)) {
+      throw new AppError('Số dư tồn kho xuất hiện lặp trong snapshot', 409);
+    }
+    const available = availableForReview(bucket.balance);
+    byId.set(id, {
+      before: { ...bucket.balance },
+      after: { ...bucket.balance },
+      availableBefore: available,
+      detailIds: [],
+    });
+  }
+
+  // Sorting is deterministic; multiple lines cannot each be planned from the
+  // same original balance, otherwise per-line checks miss aggregate overreturn.
+  const seenDetails = new Set<string>();
+  for (const entry of assignments) {
+    if (!entry || typeof entry.stockBalanceId !== 'string' ||
+        !reviewId.test(entry.stockBalanceId) ||
+        !entry.disposition || typeof entry.disposition.borrowDetailId !== 'string' ||
+        !reviewId.test(entry.disposition.borrowDetailId)) {
+      throw new AppError('Giao dịch hoàn trả thiếu số dư hoặc dòng nguồn hợp lệ', 409);
+    }
+    const detailId = entry.disposition.borrowDetailId.toLowerCase();
+    if (seenDetails.has(detailId)) {
+      throw new AppError('Dòng mượn bị ghi nhận nhiều lần trong cùng COMMIT', 409);
+    }
+    seenDetails.add(detailId);
+  }
+  const ordered = [...assignments].sort((a, b) =>
+    a.stockBalanceId.toLowerCase().localeCompare(b.stockBalanceId.toLowerCase()) ||
+    a.disposition.borrowDetailId.toLowerCase().localeCompare(b.disposition.borrowDetailId.toLowerCase()));
+  for (const entry of ordered) {
+    const balance = byId.get(entry.stockBalanceId.toLowerCase());
+    if (!balance) {
+      throw new AppError('Dòng hoàn trả không có số dư kho nguồn đã khóa', 409);
+    }
+    const step = planQuarantineFirstPhysicalReturn(balance.after, entry.disposition);
+    balance.after = step.after;
+    balance.detailIds.push(entry.disposition.borrowDetailId.toLowerCase());
+  }
+  return [...byId].filter(([, value]) => value.detailIds.length > 0)
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([stockBalanceId, value]) => ({
+      stockBalanceId,
+      before: { ...value.before },
+      after: { ...value.after },
+      availableBefore: value.availableBefore,
+      availableAfter: availableForReview(value.after),
+      borrowDetailIds: [...value.detailIds],
+    }));
+}
