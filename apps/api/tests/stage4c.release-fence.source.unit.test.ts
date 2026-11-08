@@ -62,8 +62,10 @@ describe('Stage4C / RC5 release fence — source-only, zero database/network', (
     const itemRouter = source('../src/modules/items/items.router.ts');
     expect(app).not.toContain('image-storage.http-review');
     expect(app).not.toContain('local-review-images');
+    expect(app).not.toContain('image-storage.orphan-reconcile.review');
     expect(itemRouter).not.toContain('image-storage.http-review');
     expect(itemRouter).not.toContain('createLocalItemImageReviewRouter');
+    expect(itemRouter).not.toContain('image-storage.orphan-reconcile.review');
   });
 
   it('L4-08: unmounted image review route embeds mandatory real authentication before RBAC and parsing', () => {
