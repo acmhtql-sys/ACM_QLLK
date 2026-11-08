@@ -4,6 +4,32 @@
 
 **Tài liệu này KHÔNG phải SQL, migration, lệnh tạo PostgreSQL, bằng chứng khảo sát database thật, hoặc phê duyệt DBA.** Không chạy `prisma migrate`, `initdb`, seed, rollback, lệnh SQL, thay đổi Render/Supabase hay mở writer từ tài liệu này. Mọi chữ ký ở cuối cố ý để trống.
 
+## 0. G03 — bản cập nhật quyết định owner ngày 08/11/2026 (không phải DBA/DDL approval)
+
+**Bản ghi chính thức:** [Issue #11](https://github.com/acmhtql-sys/ACM_QLLK/issues/11), phần đầu issue và [owner lifecycle decision](https://github.com/acmhtql-sys/ACM_QLLK/issues/11#issuecomment-6720618100). Các câu trong bảng G03 bên dưới như “chưa chốt mặc định uniqueness toàn hệ thống” mô tả **trạng thái lịch sử ở lần review trước**, không còn đúng đối với quyết định phạm vi nghiệp vụ owner hiện tại. Giữ lại bảng để truy xuất, nhưng **ưu tiên phần cập nhật này** khi DBA review.
+
+### Đã chốt về nghiệp vụ
+
+- Mã chứng từ do ACM cấp phải **duy nhất trên TOÀN HỆ THỐNG**, không phân biệt hoa/thường: `GLOBAL_ACM + CASE_INSENSITIVE`, kể cả khác borrow/lab.
+- BIZ-01 format ASCII giữ nguyên: `^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$`. Mã hiển thị giữ nguyên chữ gốc; `ACM-001` và `acm-001` thuộc cùng khóa đối chiếu.
+- Một mã đã phát **không được tái sử dụng sau CANCELLED**. Mọi trạng thái đã cấp mã đều chiếm namespace; tuyệt đối không loại `CANCELLED` khỏi unique index.
+- **Mỗi lần trả/operation phải có một mã riêng**, bao gồm nhiều đợt trả của cùng một phiếu. Replay cùng key/payload/actor đã xác minh chỉ đọc lại **cùng mã/chứng từ cũ**, không tạo operation khác.
+- Lỗi trùng được chuẩn hóa **409 chung**, không trả tên constraint/field, không tiết lộ mã thuộc phiếu hoặc lab nào. [PR #88](https://github.com/acmhtql-sys/ACM_QLLK/pull/88) đã thêm bảo vệ handler P2002 chung, vẫn cần writer-specific AppSec review.
+
+### Mã kiểm tra chính sách mới — review-only, KHÔNG có quyền tạo mã
+
+`apps/api/src/modules/borrow/borrow.return-global-evidence.review.ts` và `apps/api/tests/borrow.return-global-evidence.review.unit.test.ts` kiểm tra trên snapshot **thuần offline**: chuẩn hóa ASCII case-insensitive, trùng khác borrow, nhiều lần trả cùng borrow, mã CANCELLED/RECONCILIATION_REQUIRED vẫn được giữ, không trả mã nhạy cảm trong lỗi 409. Hàm **không** mở DB, không được nối vào API, và **sự vắng mặt collision trong snapshot không chứng minh uniqueness trên DB thật**. Chỉ constraint DB có phê duyệt mới bảo vệ đồng thời/đa node.
+
+### Chưa được DBA phê duyệt
+
+1. Chọn một trong hai triển khai: **cột canonical được DB bảo đảm `evidenceKey = lower(ref)`** (generated hoặc CHECK đối chiếu mã gốc + UNIQUE), hay **unique expression index `lower(ref)`**. CHECK đơn thuần `evidenceKey = lower(evidenceKey)` là **không đủ**: nó cho phép mã gốc và canonical key không khớp.
+2. Trước migration, điều tra dữ liệu cũ trùng sau khi đổi hoa/thường và khác lab/phiếu, kể cả `CANCELLED`; xử lý thủ công, không tự backfill hay suy từ `notes/reason`. Tính đúng collation ASCII, Prisma drift/forward/guarded rollback.
+3. Sau phê duyệt riêng **#12 PG17 CREATE** và **#13 SQL**, chạy 2-session race đối với `ACM-001` vs `acm-001` ở các phiếu/lab khác nhau; kiểm tra một mã đã CANCELLED không được tái phát, partial return nhiều lần có mã khác nhau, 23505/40001/P2034 đúng nghĩa và cùng HTTP 409 không tiết lộ nguồn trùng.
+
+**G03 trạng thái: `NEEDS-DESIGN`** cho đến khi có quyết định DBA độc lập được xác minh, SQL/Prisma review, kiểm tra collision, PG17/UAT theo quyền riêng. G01–G11 khác vẫn còn mở. Không merge main, không migration, không dùng dữ liệu thật, không thay đổi Render/Supabase/Vercel hay gói trả phí. `RELEASE_NO_GO`.
+
+---
+
 ## 1. Các nguồn cố định và độ tin cậy
 
 | Nguồn | Mã commit/định danh | Nội dung đã kiểm tra |

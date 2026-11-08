@@ -21,6 +21,15 @@ describe('Stage4C / RC5 release fence — source-only, zero database/network', (
     expect(prisma).not.toMatch(/^model BorrowReturnOperation\s*\{/m);
   });
 
+  it('DBA-01B: G03 owner packet preserves the full ASCII regex and a single header', () => {
+    const packet = source('../../../docs/deployment/ACM_D8_STAGE4C_DBA_SCHEMA_GAP_DECISION_PACKET_20261108.md');
+    const anchor = '- BIZ-01 format ASCII giữ nguyên: `^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}';
+    const completeRegex = anchor + String.fromCharCode(36) + '`. Mã hiển thị';
+    expect(packet).toContain(completeRegex);
+    expect(packet.split('# ACM D8 — Stage4C ↔ RC5: DBA schema-gap decision packet')).toHaveLength(2);
+    expect(packet).toContain('**G03 trạng thái: `NEEDS-DESIGN`**');
+  });
+
   it('DBA-02: does not expose a live unapproved return-operations route', () => {
     const router = source('../src/modules/borrow/borrow.router.ts');
     expect(router).not.toContain("'/return-operations'");
@@ -31,6 +40,7 @@ describe('Stage4C / RC5 release fence — source-only, zero database/network', (
     expect(router).not.toContain('borrow.return-stock-conservation.review');
     expect(router).not.toContain('borrow.return-qc-claim.review');
     expect(router).not.toContain('borrow.return-joined-posting.review');
+    expect(router).not.toContain('borrow.return-global-evidence.review');
   });
 
   it('DBA-03: keeps pure Stage4C business guards UNWIRED from legacy return service', () => {
@@ -41,6 +51,7 @@ describe('Stage4C / RC5 release fence — source-only, zero database/network', (
     expect(service).not.toContain('borrow.return-stock-conservation.review');
     expect(service).not.toContain('borrow.return-qc-claim.review');
     expect(service).not.toContain('borrow.return-joined-posting.review');
+    expect(service).not.toContain('borrow.return-global-evidence.review');
   });
 
   it('DBA-04: preserves RC5 Idempotency-Key and read-only lost-session status endpoint', () => {
