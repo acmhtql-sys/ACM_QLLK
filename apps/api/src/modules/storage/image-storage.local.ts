@@ -6,7 +6,7 @@
  * half-written sidecars but is intentionally unsuitable for production scale.
  */
 import { randomUUID } from 'node:crypto';
-import { promises as fs } from 'node:fs';
+import { constants, promises as fs } from 'node:fs';
 import path from 'node:path';
 import {
   ItemImageRead,
@@ -110,22 +110,48 @@ export class LocalOnlyDiskItemImageStorage implements ItemImageStorageProvider {
     const file = this.recordPath(imageId);
     if (!file) return null;
     await this.prepareRoot();
+    // A separate lstat() + readFile() can follow an attacker-swapped symlink
+    // between the two calls. Open O_NOFOLLOW and inspect the SAME descriptor.
+    // If the platform cannot guarantee NOFOLLOW, deny reads rather than guess.
+    const noFollow = constants.O_NOFOLLOW;
+    if (typeof noFollow !== 'number') {
+      throw new Error('LOCAL_IMAGE_STORAGE_NOFOLLOW_UNAVAILABLE');
+    }
     let serialized: string;
+    let handle: Awaited<ReturnType<typeof fs.open>> | undefined;
     try {
-      const stat = await fs.lstat(file);
-      if (!stat.isFile() || stat.isSymbolicLink() || stat.size > MAX_RECORD_BYTES) {
+      handle = await fs.open(file, constants.O_RDONLY | noFollow);
+      const stat = await handle.stat();
+      // Reject hard-linked records: a file owned/changed outside this root
+      // could otherwise pass an ordinary regular-file check.
+      if (!stat.isFile() || stat.nlink !== 1 ||
+          stat.size <= 0 || stat.size > MAX_RECORD_BYTES) {
         throw new Error('LOCAL_IMAGE_STORAGE_UNSAFE_RECORD');
       }
-      serialized = await fs.readFile(file, 'utf8');
+      serialized = await handle.readFile({ encoding: 'utf8' });
     } catch (error: unknown) {
-      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code === 'ENOENT') return null;
+      if (code === 'ELOOP' || code === 'EMLINK') {
+        throw new Error('LOCAL_IMAGE_STORAGE_UNSAFE_RECORD');
+      }
       throw error;
+    } finally {
+      await handle?.close();
     }
     const record = JSON.parse(serialized) as DiskRecord;
     if (!record || !record.metadata || typeof record.base64 !== 'string' ||
         record.metadata.id !== imageId.toLowerCase() ||
         record.metadata.itemId !== itemId.toLowerCase()) return null;
+    // Buffer.from(..., 'base64') silently tolerates invalid and non-canonical
+    // sequences. Reject them before validating the image checksum.
+    if (record.base64.length > MAX_RECORD_BYTES * 2) {
+      throw new Error('LOCAL_IMAGE_STORAGE_NONCANONICAL_BASE64');
+    }
     const contents = Buffer.from(record.base64, 'base64');
+    if (contents.toString('base64') !== record.base64) {
+      throw new Error('LOCAL_IMAGE_STORAGE_NONCANONICAL_BASE64');
+    }
     const { sha256 } = validateItemImage({
       itemId: record.metadata.itemId,
       uploadedById: record.metadata.uploadedById,
