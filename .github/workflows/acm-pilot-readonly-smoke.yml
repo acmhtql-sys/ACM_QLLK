@@ -41,6 +41,7 @@ jobs:
           status="$(curl --silent --show-error --dump-header "$headers" --output /dev/null --write-out '%{http_code}' --connect-timeout 20 --max-time 110 --request OPTIONS --header "Origin: $preview" --header 'Access-Control-Request-Method: GET' --header 'Access-Control-Request-Headers: authorization' "$url")"
           allowed="$(awk 'tolower($1) == "access-control-allow-origin:" {print $2}' "$headers" | tr -d '\r' | tail -n 1)"
           echo "Render OPTIONS health with Preview Origin -> HTTP $status"
+          echo "Access-Control-Allow-Origin: ${allowed:-<absent>}"
           if [ "$status" != "204" ] && [ "$status" != "200" ]; then
             echo "::error::Preflight request did not succeed"
             exit 1
@@ -52,6 +53,7 @@ jobs:
           echo "CORS matched exact Preview origin (no secrets or mutations)"
 
       - name: Check Preview URL is reachable or access-protected
+        if: always()
         shell: bash
         run: |
           set -euo pipefail
