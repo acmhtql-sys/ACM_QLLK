@@ -1,0 +1,66 @@
+name: ACM Pilot Read-only HTTP Smoke
+# Checks only public GET/OPTIONS endpoints. Never uses credentials or DB writes.
+on:
+  pull_request:
+    branches:
+      - codex/d8-pg17-postidentity-dba-review-20261109
+    paths:
+      - .github/workflows/acm-pilot-readonly-smoke.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  staging-http-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: GET API liveness and readiness (no credentials)
+        shell: bash
+        run: |
+          set -euo pipefail
+          base="https://acm-api-staging-29fw.onrender.com/api/v1"
+          for endpoint in liveness readiness; do
+            url="$base/health/$endpoint"
+            status="$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' --connect-timeout 20 --max-time 110 --retry 1 --retry-delay 7 --retry-all-errors "$url")"
+            echo "Render GET /health/$endpoint -> HTTP $status"
+            if [ "$status" != "200" ]; then
+              echo "::error::The public health endpoint did not return HTTP 200"
+              exit 1
+            fi
+          done
+
+      - name: Verify Preview-origin CORS (read-only preflight)
+        shell: bash
+        run: |
+          set -euo pipefail
+          preview="https://acm-qllk-staging-34v3pwrnb-acm-1cfa.vercel.app"
+          url="https://acm-api-staging-29fw.onrender.com/api/v1/health/liveness"
+          headers="$RUNNER_TEMP/acm-cors-headers.txt"
+          status="$(curl --silent --show-error --dump-header "$headers" --output /dev/null --write-out '%{http_code}' --connect-timeout 20 --max-time 110 --request OPTIONS --header "Origin: $preview" --header 'Access-Control-Request-Method: GET' --header 'Access-Control-Request-Headers: authorization' "$url")"
+          allowed="$(awk 'tolower($1) == "access-control-allow-origin:" {print $2}' "$headers" | tr -d '\r' | tail -n 1)"
+          echo "Render OPTIONS health with Preview Origin -> HTTP $status"
+          echo "Access-Control-Allow-Origin: ${allowed:-<absent>}"
+          if [ "$status" != "204" ] && [ "$status" != "200" ]; then
+            echo "::error::Preflight request did not succeed"
+            exit 1
+          fi
+          if [ "$allowed" != "$preview" ]; then
+            echo "::error::CORS origin does not match this exact protected Preview. No Render setting has been changed."
+            exit 1
+          fi
+          echo "CORS matched exact Preview origin (no secrets or mutations)"
+
+      - name: Check Preview URL is reachable or access-protected
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          url="https://acm-qllk-staging-34v3pwrnb-acm-1cfa.vercel.app/login"
+          status="$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' --connect-timeout 20 --max-time 45 "$url")"
+          echo "Vercel Preview GET /login -> HTTP $status"
+          case "$status" in
+            200|301|302|303|307|308|401|403) echo "Preview responds (a protection response does NOT count as UAT PASS)" ;;
+            *) echo "::error::Preview not reachable with expected HTTP response"; exit 1 ;;
+          esac
