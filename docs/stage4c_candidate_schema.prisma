@@ -1,0 +1,532 @@
+// Prisma Schema for ACM – Components & Equipment Management System
+// Database: PostgreSQL
+
+
+datasource db {
+  provider          = "postgresql"
+  url               = env("DATABASE_URL")
+  shadowDatabaseUrl = env("SHADOW_DATABASE_URL")
+}
+
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// ==========================================
+// ENUMS
+// ==========================================
+
+enum UserRole {
+  ADMIN
+  LAB_MANAGER
+  TECHNICIAN
+  STUDENT
+}
+
+enum ItemType {
+  CONSUMABLE       // Linh kien tieu hao: dien tro, LED, day cam, thiec han
+  TRACKED_ASSET    // Linh kien quan ly ma barcode: Arduino, ESP32, Servo, Sensor
+  EQUIPMENT        // Thiet bi / may moc: Tram han, oscilloscope, may in 3D
+}
+
+enum StockTransactionType {
+  IMPORT
+  EXPORT
+  ADJUSTMENT
+  TRANSFER
+}
+
+enum TransactionStatus {
+  COMPLETED
+  CANCELLED
+}
+
+enum BorrowStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  HANDED_OVER
+  RETURNED
+  PARTIALLY_RETURNED
+  CANCELLED
+}
+
+enum ReservationStatus {
+  ACTIVE
+  FULFILLED
+  RELEASED
+}
+
+enum AssetStatus {
+  AVAILABLE
+  RESERVED
+  BORROWED
+  QUARANTINED
+  LOST
+  RETIRED
+}
+
+enum AssetCondition {
+  GOOD
+  DAMAGED
+  LOST
+}
+
+enum LocationType {
+  WAREHOUSE
+  RACK
+  SHELF
+  BIN
+}
+
+enum KitStatus {
+  AVAILABLE
+  ALLOCATED
+  MAINTENANCE
+  RETIRED
+}
+
+// ==========================================
+// MODELS
+// ==========================================
+
+model Role {
+  id          String    @id @default(uuid()) @db.Uuid
+  name        UserRole  @unique
+  description String?
+  users       User[]
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@map("roles")
+}
+
+model User {
+  id                   String        @id @default(uuid()) @db.Uuid
+  email                String        @unique
+  passwordHash         String
+  fullName             String
+  roleId               String        @db.Uuid
+  roleRelation         Role          @relation(fields: [roleId], references: [id])
+  role                 UserRole      @default(STUDENT)
+  studentOrStaffId     String?
+  department           String?
+  phoneNumber          String?
+  isActive             Boolean       @default(true)
+  isLocked             Boolean       @default(false)
+  failedLoginAttempts  Int           @default(0)
+  createdAt            DateTime      @default(now())
+  updatedAt            DateTime      @updatedAt
+
+  // Relations
+  borrowRequestsMade      BorrowRequest[]         @relation("BorrowerRelation")
+  borrowRequestsApproved  BorrowRequest[]         @relation("ApproverRelation")
+  stockTransactionsMade   StockTransaction[]      @relation("CreatedByRelation")
+  returnsReceived         ReturnTransaction[]     @relation("ReceiverRelation")
+  stockMovementsMade      StockMovement[]         @relation("UserMovementRelation")
+  kitsCreated             Kit[]                   @relation("UserKitCreatedRelation")
+  auditLogs               AuditLog[]
+  idempotencyRecords      IdempotencyRecord[]
+
+  @@index([roleId])
+  @@index([role])
+  @@index([isActive, isLocked])
+  @@map("users")
+}
+
+model Category {
+  id          String     @id @default(uuid()) @db.Uuid
+  code        String     @unique
+  name        String
+  description String?
+  parentId    String?    @db.Uuid
+  parent      Category?  @relation("CategoryHierarchy", fields: [parentId], references: [id])
+  children    Category[] @relation("CategoryHierarchy")
+  items       Item[]
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  @@index([parentId])
+  @@map("categories")
+}
+
+model Item {
+  id            String      @id @default(uuid()) @db.Uuid
+  code          String      @unique // SKU hoac Ma quan ly
+  name          String
+  description   String?
+  unit          String      // Cai, Cuon, Goi, Chiec
+  type          ItemType    @default(CONSUMABLE)
+  categoryId    String      @db.Uuid
+  category      Category    @relation(fields: [categoryId], references: [id])
+  minStockAlert Int         @default(5)
+  imageUrl      String?
+  isActive      Boolean     @default(true)
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  // Relations
+  assets                  Asset[]
+  stockBalances           StockBalance[]
+  stockMovements          StockMovement[]
+  stockReservations       StockReservation[]
+  stockTransactionDetails StockTransactionDetail[]
+  borrowDetails           BorrowDetail[]
+  returnDetails           ReturnDetail[]
+  kitItems                KitItem[]
+
+  @@index([categoryId])
+  @@index([type])
+  @@index([isActive])
+  @@map("items")
+}
+
+model Location {
+  id          String        @id @default(uuid()) @db.Uuid
+  code        String        @unique // WH-01, RACK-A, BIN-01
+  name        String
+  type        LocationType  @default(WAREHOUSE)
+  parentId    String?       @db.Uuid
+  parent      Location?     @relation("LocationHierarchy", fields: [parentId], references: [id])
+  children    Location[]    @relation("LocationHierarchy")
+  isActive    Boolean       @default(true)
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  // Relations
+  assets                        Asset[]
+  stockBalances                 StockBalance[]
+  stockMovements                StockMovement[]
+  stockReservations             StockReservation[]
+  stockTransactionDetails       StockTransactionDetail[] @relation("TransferFromLocation")
+  stockTransactionDetailsDest   StockTransactionDetail[] @relation("TransferToLocation")
+  kits                          Kit[]
+
+  @@index([parentId])
+  @@index([type])
+  @@index([isActive])
+  @@map("locations")
+}
+
+model Asset {
+  id            String          @id @default(uuid()) @db.Uuid
+  serialNumber  String          @unique
+  barcode       String?         @unique
+  itemId        String          @db.Uuid
+  item          Item            @relation(fields: [itemId], references: [id])
+  locationId    String          @db.Uuid
+  location      Location        @relation(fields: [locationId], references: [id])
+  status        AssetStatus     @default(AVAILABLE)
+  condition     AssetCondition  @default(GOOD)
+  notes         String?
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+
+  // Relations
+  borrowDetails   BorrowDetail[]
+  returnDetails   ReturnDetail[]
+
+  @@index([itemId])
+  @@index([locationId])
+  @@index([status])
+  @@map("assets")
+}
+
+// StockBalance model
+// Quy tac bat bien:
+// Available = OnHand - Reserved - Quarantined - KitAllocated
+// Borrowed dai dien cho so luong dang mang ra ngoai lab, da tru khoi OnHand luc Handover,
+// khong duoc tru hai lan khi tinh Available.
+model StockBalance {
+  id           String    @id @default(uuid()) @db.Uuid
+  itemId       String    @db.Uuid
+  item         Item      @relation(fields: [itemId], references: [id])
+  locationId   String    @db.Uuid
+  location     Location  @relation(fields: [locationId], references: [id])
+  onHand       Int       @default(0) // Ton kho vat ly tai lab (>= 0)
+  reserved     Int       @default(0) // Da giu cho qua phieu duyet (>= 0)
+  quarantined  Int       @default(0) // Hang loi/cach ly kiem tra (>= 0)
+  kitAllocated Int       @default(0) // Hang gan co dinh vao kit (>= 0)
+  borrowed     Int       @default(0) // Hang dang cho muon ngoai lab (>= 0)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@unique([itemId, locationId])
+  @@index([locationId])
+  @@index([itemId])
+  @@map("stock_balances")
+}
+
+model StockMovement {
+  id            String                @id @default(uuid()) @db.Uuid
+  itemId        String                @db.Uuid
+  item          Item                  @relation(fields: [itemId], references: [id])
+  locationId    String                @db.Uuid
+  location      Location              @relation(fields: [locationId], references: [id])
+  type          StockTransactionType
+  quantityDelta Int                   // +/- so luong thay doi
+  onHandBefore  Int
+  onHandAfter   Int
+  referenceType String                // "TRANSACTION", "BORROW_HANDOVER", "RETURN", "ADJUSTMENT"
+  referenceId   String?
+  reason        String?
+  createdById   String?               @db.Uuid
+  createdBy     User?                 @relation("UserMovementRelation", fields: [createdById], references: [id])
+  createdAt     DateTime              @default(now())
+
+  @@index([itemId, locationId])
+  @@index([createdAt])
+  @@index([createdById])
+  @@index([referenceType, referenceId])
+  @@map("stock_movements")
+}
+
+model StockReservation {
+  id              String            @id @default(uuid()) @db.Uuid
+  borrowRequestId String            @db.Uuid
+  borrowRequest   BorrowRequest     @relation(fields: [borrowRequestId], references: [id])
+  itemId          String            @db.Uuid
+  item            Item              @relation(fields: [itemId], references: [id])
+  locationId      String            @db.Uuid
+  location        Location          @relation(fields: [locationId], references: [id])
+  quantity        Int
+  status          ReservationStatus @default(ACTIVE)
+  expiresAt       DateTime?
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+
+  @@index([borrowRequestId])
+  @@index([itemId, locationId])
+  @@index([status])
+  @@map("stock_reservations")
+}
+
+model StockTransaction {
+  id                String                   @id @default(uuid()) @db.Uuid
+  transactionNumber String                   @unique // TX-YYYYMMDD-XXXX
+  type              StockTransactionType
+  status            TransactionStatus        @default(COMPLETED)
+  notes             String?
+  createdById       String                   @db.Uuid
+  createdBy         User                     @relation("CreatedByRelation", fields: [createdById], references: [id])
+  details           StockTransactionDetail[]
+  idempotencyRecord IdempotencyRecord?
+  createdAt         DateTime                 @default(now())
+  updatedAt         DateTime                 @updatedAt
+
+  @@index([createdById])
+  @@index([type])
+  @@index([createdAt])
+  @@map("stock_transactions")
+}
+
+model StockTransactionDetail {
+  id                 String           @id @default(uuid()) @db.Uuid
+  stockTransactionId String           @db.Uuid
+  stockTransaction   StockTransaction @relation(fields: [stockTransactionId], references: [id], onDelete: Cascade)
+  itemId             String           @db.Uuid
+  item               Item             @relation(fields: [itemId], references: [id])
+  locationId         String           @db.Uuid
+  location           Location         @relation("TransferFromLocation", fields: [locationId], references: [id])
+  toLocationId       String?          @map("to_location_id") @db.Uuid
+  toLocation         Location?        @relation("TransferToLocation", fields: [toLocationId], references: [id], onDelete: Restrict)
+  quantity           Int
+  unitCost           Float?
+  notes              String?
+  createdAt          DateTime         @default(now())
+
+  @@index([stockTransactionId])
+  @@index([itemId])
+  @@index([locationId])
+  @@index([toLocationId])
+  @@map("stock_transaction_details")
+}
+
+model BorrowRequest {
+  id                 String             @id @default(uuid()) @db.Uuid
+  requestNumber      String             @unique // BR-YYYYMMDD-XXXX
+  borrowerId         String             @db.Uuid
+  borrower           User               @relation("BorrowerRelation", fields: [borrowerId], references: [id])
+  approverId         String?            @db.Uuid
+  approver           User?              @relation("ApproverRelation", fields: [approverId], references: [id])
+  status             BorrowStatus       @default(PENDING)
+  purpose            String
+  expectedBorrowDate DateTime
+  expectedReturnDate DateTime
+  actualBorrowDate   DateTime?
+  actualReturnDate   DateTime?
+  rejectionReason    String?
+  notes              String?
+  details            BorrowDetail[]
+  reservations       StockReservation[]
+  returnTransactions ReturnTransaction[]
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+
+  @@index([borrowerId])
+  @@index([approverId])
+  @@index([status])
+  @@index([expectedReturnDate])
+  @@map("borrow_requests")
+}
+
+model BorrowDetail {
+  id              String        @id @default(uuid()) @db.Uuid
+  borrowRequestId String        @db.Uuid
+  borrowRequest   BorrowRequest @relation(fields: [borrowRequestId], references: [id], onDelete: Cascade)
+  itemId          String        @db.Uuid
+  item            Item          @relation(fields: [itemId], references: [id])
+  assetId         String?       @db.Uuid
+  asset           Asset?        @relation(fields: [assetId], references: [id])
+  quantity        Int
+  returnedQuantity Int          @default(0)
+  notes           String?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  @@index([borrowRequestId])
+  @@index([itemId])
+  @@index([assetId])
+  @@map("borrow_details")
+}
+
+model ReturnTransaction {
+  id              String         @id @default(uuid()) @db.Uuid
+  returnNumber    String         @unique // RT-YYYYMMDD-XXXX
+  borrowRequestId String         @db.Uuid
+  borrowRequest   BorrowRequest  @relation(fields: [borrowRequestId], references: [id])
+  receiverId      String         @db.Uuid
+  receiver        User           @relation("ReceiverRelation", fields: [receiverId], references: [id])
+  notes           String?
+  details         ReturnDetail[]
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
+  @@index([borrowRequestId])
+  @@index([receiverId])
+  @@index([createdAt])
+  @@map("return_transactions")
+}
+
+model ReturnDetail {
+  id                  String            @id @default(uuid()) @db.Uuid
+  returnTransactionId String            @db.Uuid
+  returnTransaction   ReturnTransaction @relation(fields: [returnTransactionId], references: [id], onDelete: Cascade)
+  itemId              String            @db.Uuid
+  item                Item              @relation(fields: [itemId], references: [id])
+  assetId             String?           @db.Uuid
+  asset               Asset?            @relation(fields: [assetId], references: [id])
+  quantity            Int
+  condition           AssetCondition    @default(GOOD)
+  notes               String?
+  createdAt           DateTime          @default(now())
+
+  @@index([returnTransactionId])
+  @@index([itemId])
+  @@index([assetId])
+  @@map("return_details")
+}
+
+model AuditLog {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String?  @db.Uuid
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  action    String   // CREATE, UPDATE, DELETE, HANDOVER, RETURN, ADJUST_STOCK
+  entity    String   // Item, StockBalance, BorrowRequest, User
+  entityId  String
+  oldValue  Json?
+  newValue  Json?
+  ipAddress String?
+  userAgent String?
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([entity, entityId])
+  @@index([action])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
+
+model IdempotencyRecord {
+  id            String            @id @default(uuid()) @db.Uuid
+  key           String            @unique
+  userId        String            @map("user_id") @db.Uuid
+  user          User              @relation(fields: [userId], references: [id], onDelete: Restrict)
+  endpoint      String
+  requestHash   String            @map("request_hash")
+  status        String            @default("PENDING") // PENDING, COMPLETED, FAILED
+  transactionId String?           @unique @map("transaction_id") @db.Uuid
+  transaction   StockTransaction? @relation(fields: [transactionId], references: [id], onDelete: Restrict)
+  responseBody  Json?             @map("response_body")
+  statusCode    Int?              @map("status_code")
+  createdAt     DateTime          @default(now()) @map("created_at")
+  expiresAt     DateTime          @map("expires_at")
+
+  @@index([userId, endpoint])
+  @@index([expiresAt])
+  @@map("idempotency_records")
+}
+
+model Kit {
+  id          String     @id @default(uuid()) @db.Uuid
+  code        String     @unique // KIT-IOT-001
+  name        String
+  description String?
+  status      KitStatus  @default(AVAILABLE)
+  locationId  String?    @db.Uuid
+  location    Location?  @relation(fields: [locationId], references: [id], onDelete: SetNull)
+  createdById String?    @db.Uuid
+  createdBy   User?      @relation("UserKitCreatedRelation", fields: [createdById], references: [id], onDelete: SetNull)
+  items       KitItem[]
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  @@index([locationId])
+  @@index([createdById])
+  @@index([status])
+  @@map("kits")
+}
+
+model KitItem {
+  id        String   @id @default(uuid()) @db.Uuid
+  kitId     String   @db.Uuid
+  kit       Kit      @relation(fields: [kitId], references: [id], onDelete: Cascade)
+  itemId    String   @db.Uuid
+  item      Item     @relation(fields: [itemId], references: [id], onDelete: Restrict)
+  quantity  Int
+  notes     String?
+  createdAt DateTime @default(now())
+
+  @@unique([kitId, itemId])
+  @@index([kitId])
+  @@index([itemId])
+  @@map("kit_items")
+}
+
+enum ReturnOperationState {
+  PREPARED
+  RECONCILIATION_REQUIRED
+  COMPLETED
+  CANCELLED
+}
+
+model BorrowReturnOperation {
+  id                  String               @id @default(uuid())
+  borrowRequestId     String
+  returnTransactionId String?
+  state               ReturnOperationState @default(PREPARED)
+  physicalEvidenceRef String
+  receivedById        String
+  verifiedById        String?
+  receivedAt          DateTime             @default(now())
+  verifiedAt          DateTime?
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+
+  borrowRequest       BorrowRequest        @relation(fields: [borrowRequestId], references: [id])
+  receivedBy          User                 @relation("ReceivedOperations", fields: [receivedById], references: [id])
+  verifiedBy          User?                @relation("VerifiedOperations", fields: [verifiedById], references: [id])
+
+  @@map("borrow_return_operations")
+}

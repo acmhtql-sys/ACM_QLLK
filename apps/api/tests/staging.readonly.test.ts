@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, beforeAll, afterAll } from 'vitest';
 import net from 'net';
+import cors from 'cors';
 import http from 'http';
 import fs from 'fs';
 import path from 'path';
@@ -8,6 +9,8 @@ import {
   validateSecurityConfig,
   isSecureCloudJwtSecret,
   isValidCloudCorsOrigin,
+  isValidCloudCorsAllowlist,
+  splitCorsOrigins,
   INSECURE_JWT_SECRETS,
   createPureReadOnlyGuard,
   evaluateReadOnlyPolicy,
@@ -886,5 +889,80 @@ describe('Phase C1A.2R: Pure Mock Security Test Suite (Zero HTTP Listeners & Zer
 
     // 3. env.ts validates production profile allowlist
     expect(envSource).toContain("if (profile !== 'cloud_staging')");
+  });
+});
+
+describe('Pilot 09-15 Nov 2026: fail-closed staging CORS origin allowlist', () => {
+  const oldPreview = 'https://acm-qllk-staging-web-git-codex-p3-staging-reado-9c73d1-acm-1cfa.vercel.app';
+  const newPreview = 'https://acm-qllk-staging-34v3pwrnb-acm-1cfa.vercel.app';
+
+  it('accepts one legacy origin and at most four explicit HTTPS origins', () => {
+    expect(isValidCloudCorsAllowlist(oldPreview).valid).toBe(true);
+    expect(isValidCloudCorsAllowlist(`${oldPreview}, ${newPreview}`).valid).toBe(true);
+    expect(splitCorsOrigins(oldPreview)).toBe(oldPreview);
+    expect(splitCorsOrigins('*')).toBe('*'); // preserve local dev wildcard behavior
+    expect(splitCorsOrigins(`${oldPreview}, ${newPreview}`)).toEqual([oldPreview, newPreview]);
+
+    const validated = validateDeploymentProfileConfig({
+      NODE_ENV: 'production',
+      ACM_DEPLOYMENT_PROFILE: 'cloud_staging',
+      STAGING_READ_ONLY: 'true',
+      JWT_SECRET: 'c3ab8ff13720e8ad9047dd39466b3c8974e592c2fa383d4a3960714caef0c4f2',
+      CORS_ORIGIN: `${oldPreview}, ${newPreview}`,
+    });
+    expect(validated.success).toBe(true);
+  });
+
+  it('rejects a wildcard, non-HTTPS/localhost, empty element, duplicate or oversized list', () => {
+    for (const invalid of [
+      `${oldPreview},*`,
+      `${oldPreview},http://localhost:5173`,
+      `${oldPreview},`,
+      `${oldPreview},${oldPreview}`,
+      `${oldPreview},${newPreview},${oldPreview.toUpperCase()}`,
+      `${oldPreview},${newPreview},https://a.example.com,https://b.example.com,https://c.example.com`,
+      `${oldPreview},\n${newPreview}`,
+    ]) {
+      expect(isValidCloudCorsAllowlist(invalid).valid, invalid).toBe(false);
+    }
+  });
+
+  it('responds to OPTIONS only for exactly configured origins without listening on a TCP port', async () => {
+    const middleware = cors({
+      origin: splitCorsOrigins(`${oldPreview},${newPreview}`),
+      credentials: true,
+    });
+    const fromNew = await dispatch(middleware, {
+      method: 'OPTIONS',
+      url: '/api/v1/health/liveness',
+      headers: {
+        Origin: newPreview,
+        'Access-Control-Request-Method': 'GET',
+        'Access-Control-Request-Headers': 'authorization',
+      },
+    });
+    expect(fromNew.res.statusCode).toBe(204);
+    expect(fromNew.res.headers['access-control-allow-origin']).toBe(newPreview);
+    expect(fromNew.res.headers['access-control-allow-credentials']).toBe('true');
+
+    const fromOld = await dispatch(middleware, {
+      method: 'OPTIONS',
+      url: '/api/v1/health/liveness',
+      headers: {
+        Origin: oldPreview,
+        'Access-Control-Request-Method': 'GET',
+      },
+    });
+    expect(fromOld.res.headers['access-control-allow-origin']).toBe(oldPreview);
+
+    const untrusted = await dispatch(middleware, {
+      method: 'OPTIONS',
+      url: '/api/v1/health/liveness',
+      headers: {
+        Origin: 'https://attacker.example.com',
+        'Access-Control-Request-Method': 'GET',
+      },
+    });
+    expect(untrusted.res.headers['access-control-allow-origin']).toBeUndefined();
   });
 });

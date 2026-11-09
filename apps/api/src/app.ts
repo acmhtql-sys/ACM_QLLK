@@ -3,6 +3,7 @@ import cors from 'cors';
 import helmet from 'helmet';
 import morgan from 'morgan';
 import { env } from './config/env';
+import { splitCorsOrigins } from './config/securityPolicy';
 import { errorHandler } from './middleware/errorHandler';
 import { healthRouter } from './modules/health/health.router';
 import { authRouter } from './modules/auth/auth.router';
@@ -28,7 +29,8 @@ export function createApp(options?: { stagingReadOnly?: StagingReadOnlyOptions }
 
   // Basic security and parsing middleware
   app.use(helmet());
-  app.use(cors({ origin: env.CORS_ORIGIN, credentials: true }));
+  // A bounded HTTPS allowlist in cloud_staging; a single origin (or local '*' mode) stays unchanged.
+  app.use(cors({ origin: splitCorsOrigins(env.CORS_ORIGIN), credentials: true }));
   // Reject compressed request bodies before body-parser decompresses them.
   // Mitigates GHSA-27r3-jxmh-p828 (body-parser 1.20.x) without upgrading
   // Express / parser major versions during the staging review window.

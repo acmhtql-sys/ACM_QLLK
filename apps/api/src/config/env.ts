@@ -5,6 +5,7 @@ import { z } from 'zod';
 import {
   isSecureCloudJwtSecret,
   isValidCloudCorsOrigin,
+  isValidCloudCorsAllowlist,
   deploymentProfileSchema,
   validateDeploymentProfileConfig,
   validateSecurityConfig,
@@ -15,6 +16,7 @@ import { validateDatabaseUrl } from './databaseGuard';
 export {
   isSecureCloudJwtSecret,
   isValidCloudCorsOrigin,
+  isValidCloudCorsAllowlist,
   deploymentProfileSchema,
   validateDeploymentProfileConfig,
   validateSecurityConfig,
@@ -126,7 +128,7 @@ const envSchema = z
         });
       }
 
-      const corsCheck = isValidCloudCorsOrigin(data.CORS_ORIGIN);
+      const corsCheck = isValidCloudCorsAllowlist(data.CORS_ORIGIN);
       if (!corsCheck.valid) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,

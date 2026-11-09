@@ -558,10 +558,35 @@ export const BorrowReturnPage: React.FC = () => {
             <RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />
             <span>Làm mới</span>
           </button>
-          <button className="inline-flex items-center space-x-1.5 rounded-lg bg-blue-600 px-3.5 py-2 text-xs font-semibold text-white shadow-sm shadow-blue-500/20 hover:bg-blue-700">
-            <Plus className="h-3.5 w-3.5" />
-            <span>Tạo phiếu mượn mới</span>
-          </button>
+          {/* Issue #93: Nút tạo phiếu mượn có bảo vệ Staging Read-only */}
+<div className="inline-block relative group">
+  <button
+    type="button"
+    disabled={import.meta.env.VITE_STAGING_READ_ONLY === 'true'}
+    className={`px-4 py-2 rounded-lg font-medium flex items-center gap-2 ${
+      import.meta.env.VITE_STAGING_READ_ONLY === 'true'
+        ? 'bg-gray-200 text-gray-500 cursor-not-allowed border border-gray-300'
+        : 'bg-blue-600 text-white hover:bg-blue-700 shadow-sm'
+    }`}
+    onClick={() => {
+      if (import.meta.env.VITE_STAGING_READ_ONLY === 'true') return;
+      alert('Chức năng tạo phiếu mượn đang được kết nối với Modal local test.');
+    }}
+  >
+    <Plus className="w-4 h-4" />
+    <span>Tạo phiếu mượn mới</span>
+    {import.meta.env.VITE_STAGING_READ_ONLY === 'true' && (
+      <span className="text-xs bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded font-normal">
+        Chỉ đọc
+      </span>
+    )}
+  </button>
+  {import.meta.env.VITE_STAGING_READ_ONLY === 'true' && (
+    <div className="absolute left-0 top-full mt-1.5 hidden group-hover:block w-72 p-2 bg-slate-800 text-white text-xs rounded-md shadow-lg z-50">
+      Chức năng tạm khóa trên Cloud Staging để bảo vệ tồn kho (STAGING_READ_ONLY=true).
+    </div>
+  )}
+</div>
         </div>
       </div>
 

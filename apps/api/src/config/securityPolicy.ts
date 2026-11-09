@@ -125,6 +125,46 @@ export function isValidCloudCorsOrigin(origin?: string): { valid: boolean; reaso
   return { valid: true };
 }
 
+
+/**
+ * Explicit, bounded CORS allowlist for the non-production pilot.
+ * Existing single-origin and local-development wildcard behavior is preserved.
+ * Only cloud_staging accepts HTTPS origins after checking every entry below.
+ */
+export function splitCorsOrigins(raw: string): string | string[] {
+  const normalized = raw.trim();
+  return normalized.includes(',')
+    ? normalized.split(',').map((part) => part.trim())
+    : normalized;
+}
+
+export function isValidCloudCorsAllowlist(raw?: string): { valid: boolean; reason?: string } {
+  if (typeof raw !== 'string' || !raw.trim()) {
+    return { valid: false, reason: 'CORS_ORIGIN is required for Cloud deployment' };
+  }
+  if (/[\r\n\t]/.test(raw)) {
+    return { valid: false, reason: 'CORS_ORIGIN must not contain control characters' };
+  }
+
+  const configured = splitCorsOrigins(raw);
+  const origins = Array.isArray(configured) ? configured : [configured];
+  if (origins.length > 4) {
+    return { valid: false, reason: 'CORS_ORIGIN supports at most four explicit HTTPS origins' };
+  }
+
+  const seen = new Set<string>();
+  for (const origin of origins) {
+    const checked = isValidCloudCorsOrigin(origin);
+    if (!checked.valid) return checked;
+    const canonical = new URL(origin).origin.toLowerCase();
+    if (seen.has(canonical)) {
+      return { valid: false, reason: 'CORS_ORIGIN must not contain duplicate origins' };
+    }
+    seen.add(canonical);
+  }
+  return { valid: true };
+}
+
 export const deploymentProfileSchema = z
   .object({
     NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
@@ -190,7 +230,7 @@ export const deploymentProfileSchema = z
         });
       }
 
-      const corsCheck = isValidCloudCorsOrigin(data.CORS_ORIGIN);
+      const corsCheck = isValidCloudCorsAllowlist(data.CORS_ORIGIN);
       if (!corsCheck.valid) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
